@@ -8,103 +8,144 @@
 <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 
 <style>
+:root {
+  --black:#0a0a0a;
+  --white:#f5f5f7;
+  --dim:#86868b;
+  --teal:#00c8d7;
+}
+
 body {
   margin:0;
-  font-family:'Mona Sans', system-ui, sans-serif;
-  background:#0a0a0a;
-  color:#f5f5f7;
+  font-family:'Mona Sans', system-ui;
+  background:var(--black);
+  color:var(--white);
   text-align:center;
 }
 
 section {
-  padding:80px 20px;
+  padding:100px 20px;
   max-width:900px;
   margin:auto;
 }
 
 h1 {
-  font-size:64px;
-  margin-bottom:20px;
-  letter-spacing:-2px;
+  font-size:clamp(48px,10vw,110px);
+  letter-spacing:-3px;
 }
 
 h2 {
-  font-size:36px;
-  margin-bottom:20px;
-  letter-spacing:-1px;
+  font-size:clamp(28px,6vw,56px);
 }
 
 p {
-  color:#86868b;
+  color:var(--dim);
   font-size:18px;
   line-height:1.6;
 }
 
-strong { color:#fff; }
+strong { color:white; }
 
 .btn {
   display:inline-block;
   margin-top:20px;
-  padding:14px 28px;
-  background:#00c8d7;
+  padding:16px 32px;
+  background:var(--teal);
   color:#000;
   border-radius:999px;
-  text-decoration:none;
   font-weight:600;
+}
+
+input {
+  padding:14px;
+  border-radius:999px;
+  border:none;
+  width:260px;
+  margin-top:20px;
 }
 </style>
 </head>
 
 <body>
 
+<!-- HERO -->
 <section>
   <h1>Dead calm<br>gaming.</h1>
   <p>
     Starlink drops. Spikes. Disconnects.<br>
-    <strong>AntíJitter combines multiple connections into one stable link</strong>.
+    <strong>AntíJitter combines all your internet connections into one stable link.</strong>
   </p>
-  <a class="btn" href="#">Get early access</a>
+
+  <input placeholder="Enter email">
+  <br>
+  <a class="btn">Get early access</a>
 </section>
 
+<!-- PROBLEM -->
 <section>
-  <h2>Satellite handoffs break real-time gaming.</h2>
+  <h2>Satellite handoffs break gaming.</h2>
   <p>
-    Starlink switches satellites constantly. Packets are delayed or lost —
-    causing <strong>lag spikes, rubber banding, and disconnects</strong>.
+    Starlink constantly switches satellites.<br><br>
+    This causes <strong>packet loss, latency spikes, and disconnects</strong>.
+    <br><br>
+    VPNs and “gaming boosters” still rely on one connection.
+    <strong>When it drops, everything drops.</strong>
   </p>
 </section>
 
+<!-- SOLUTION -->
 <section>
   <h2>Every packet. Every path.</h2>
   <p>
     AntíJitter sends every packet across all connections simultaneously.
-    The first to arrive is used. The rest are discarded.
     <br><br>
-    No waiting. No switching. No interruption.
+    The first packet to arrive is used.<br>
+    The rest are discarded.
+    <br><br>
+    <strong>No switching. No lag spikes. No disconnects.</strong>
   </p>
 </section>
 
+<!-- PRODUCTS -->
 <section>
-  <h2>Two products. One solution.</h2>
+  <h2>Two products. One system.</h2>
   <p>
     Start instantly with the app.<br>
-    Upgrade to <strong>AntíJitter SWITCH</strong> for permanent stability.
+    Upgrade to <strong>AntíJitter SWITCH</strong> for full home stability.
+  </p>
+
+  <p>
+    <strong>App:</strong> Phone-based bonding hotspot<br>
+    <strong>SWITCH:</strong> Dedicated router with 4G + 5G + Starlink
   </p>
 </section>
 
+<!-- PROOF -->
+<section>
+  <h2>100+ seamless failovers.</h2>
+  <p>
+    Tested under extreme instability conditions.<br>
+    <strong>Zero disconnects. Stable gameplay.</strong>
+  </p>
+</section>
+
+<!-- MARKET -->
 <section>
   <h2>Millions of unstable connections.</h2>
   <p>
-    AntíJitter targets users who need stable, uninterrupted connectivity.
+    Starlink users worldwide experience latency spikes.<br>
+    AntíJitter targets a $450M+ market of users needing stability.
   </p>
 </section>
 
+<!-- CTA -->
 <section>
-  <h2>Extreme conditions. Zero drops.</h2>
-  <p>
-    Obstructed dish. Partial signal loss. Frequent handoffs.<br>
-    <strong>Still stable. Still playable.</strong>
-  </p>
+  <h2>Be first.</h2>
+  <p>Join early access before Kickstarter launch.</p>
+
+  <input placeholder="Enter email">
+  <br>
+  <a class="btn">Join waitlist</a>
 </section>
 
 </body>
