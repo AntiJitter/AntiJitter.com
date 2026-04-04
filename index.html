@@ -1,71 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AntíJitter — Dead calm gaming.</title>
-
-<link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-
-<style>
-:root {
-  --black:#0a0a0a;
-  --white:#f5f5f7;
-  --dim:#86868b;
-  --teal:#00c8d7;
-}
-
-body {
-  margin:0;
-  font-family:'Mona Sans', system-ui;
-  background:var(--black);
-  color:var(--white);
-  text-align:center;
-}
-
-section {
-  padding:100px 20px;
-  max-width:900px;
-  margin:auto;
-}
-
-h1 {
-  font-size:clamp(48px,10vw,110px);
-  letter-spacing:-3px;
-}
-
-h2 {
-  font-size:clamp(28px,6vw,56px);
-}
-
-p {
-  color:var(--dim);
-  font-size:18px;
-  line-height:1.6;
-}
-
-strong { color:white; }
-
-.btn {
-  display:inline-block;
-  margin-top:20px;
-  padding:16px 32px;
-  background:var(--teal);
-  color:#000;
-  border-radius:999px;
-  font-weight:600;
-}
-
-input {
-  padding:14px;
-  border-radius:999px;
-  border:none;
-  width:260px;
-  margin-top:20px;
-}
-</style>
-</head>
-
 <body>
 
 <!-- HERO -->
@@ -73,7 +5,7 @@ input {
   <h1>Dead calm<br>gaming.</h1>
   <p>
     Starlink drops. Spikes. Disconnects.<br>
-    <strong>AntíJitter combines all your internet connections into one stable link.</strong>
+    <strong>AntíJitter combines all connections into one stable link.</strong>
   </p>
 
   <input placeholder="Enter email">
@@ -81,72 +13,82 @@ input {
   <a class="btn">Get early access</a>
 </section>
 
-<!-- PROBLEM -->
+<!-- GRAPH VISUAL -->
 <section>
-  <h2>Satellite handoffs break gaming.</h2>
+  <h2>Stability you can see.</h2>
+
+  <div class="graph">
+    <div class="line starlink"></div>
+    <div class="line antijitter"></div>
+  </div>
+
   <p>
-    Starlink constantly switches satellites.<br><br>
-    This causes <strong>packet loss, latency spikes, and disconnects</strong>.
-    <br><br>
-    VPNs and “gaming boosters” still rely on one connection.
-    <strong>When it drops, everything drops.</strong>
+    Starlink: unstable latency spikes<br>
+    <strong>AntíJitter: flat, stable connection</strong>
   </p>
 </section>
 
-<!-- SOLUTION -->
+<!-- HOW IT WORKS VISUAL -->
 <section>
   <h2>Every packet. Every path.</h2>
+
+  <div class="diagram">
+    <div>📡 Starlink</div>
+    <div>📶 4G</div>
+    <div>📶 5G</div>
+    <div class="arrow">⬇</div>
+    <div class="core">AntíJitter Engine</div>
+    <div class="arrow">⬇</div>
+    <div>🎮 Your Game</div>
+  </div>
+
   <p>
-    AntíJitter sends every packet across all connections simultaneously.
-    <br><br>
     The first packet to arrive is used.<br>
     The rest are discarded.
-    <br><br>
-    <strong>No switching. No lag spikes. No disconnects.</strong>
   </p>
 </section>
 
 <!-- PRODUCTS -->
 <section>
   <h2>Two products. One system.</h2>
-  <p>
-    Start instantly with the app.<br>
-    Upgrade to <strong>AntíJitter SWITCH</strong> for full home stability.
-  </p>
 
-  <p>
-    <strong>App:</strong> Phone-based bonding hotspot<br>
-    <strong>SWITCH:</strong> Dedicated router with 4G + 5G + Starlink
-  </p>
+  <div class="cards">
+
+    <div class="card">
+      <h3>AntíJitter App</h3>
+      <p>Phone-based bonding hotspot with live ping graph.</p>
+    </div>
+
+    <div class="card">
+      <h3>AntíJitter SWITCH</h3>
+      <p>Dedicated router with 4G + 5G + Starlink inputs.</p>
+    </div>
+
+  </div>
 </section>
 
-<!-- PROOF -->
+<!-- PLATFORM STACK -->
 <section>
-  <h2>100+ seamless failovers.</h2>
-  <p>
-    Tested under extreme instability conditions.<br>
-    <strong>Zero disconnects. Stable gameplay.</strong>
-  </p>
-</section>
+  <h2>Built on EnGarde.</h2>
 
-<!-- MARKET -->
-<section>
-  <h2>Millions of unstable connections.</h2>
+  <div class="platforms">
+    <div>📱 Android</div>
+    <div>💻 Windows</div>
+    <div>🍎 iPhone</div>
+    <div>🧠 Raspberry Pi</div>
+  </div>
+
   <p>
-    Starlink users worldwide experience latency spikes.<br>
-    AntíJitter targets a $450M+ market of users needing stability.
+    EnGarde + WireGuard bonding engine runs across all platforms.
   </p>
 </section>
 
 <!-- CTA -->
 <section>
   <h2>Be first.</h2>
-  <p>Join early access before Kickstarter launch.</p>
-
   <input placeholder="Enter email">
   <br>
   <a class="btn">Join waitlist</a>
 </section>
 
 </body>
-</html>
