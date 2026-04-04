@@ -54,6 +54,37 @@ strong { color:white; }
   color:#000;
   border-radius:999px;
   font-weight:600;
+  text-decoration:none;
+}
+
+.btn-ghost {
+  display:inline-block;
+  margin-top:12px;
+  margin-left:12px;
+  padding:14px 28px;
+  background:transparent;
+  color:var(--teal);
+  border:1.5px solid var(--teal);
+  border-radius:999px;
+  font-weight:600;
+  text-decoration:none;
+  font-family:inherit;
+  font-size:inherit;
+}
+
+nav {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:20px 40px;
+  border-bottom:1px solid #1a1a1a;
+  max-width:100%;
+}
+
+nav .logo {
+  font-size:20px;
+  font-weight:800;
+  letter-spacing:-0.5px;
 }
 
 input {
@@ -67,6 +98,12 @@ input {
 </head>
 
 <body>
+
+<!-- NAV -->
+<nav>
+  <span class="logo">Antí<span style="color:var(--teal)">Jitter</span></span>
+  <a href="/dashboard/" class="btn-ghost">Live Dashboard →</a>
+</nav>
 
 <!-- HEADER IMAGE -->
 <section>
@@ -83,7 +120,9 @@ input {
 
   <input placeholder="Enter email">
   <br>
-  <a class="btn">Get early access</a>
+  <a href="#" class="btn">Get early access</a>
+  <br>
+  <a href="/dashboard/" class="btn-ghost" style="margin-top:16px;display:inline-block">See it live →</a>
 </section>
 
 <!-- PROBLEM -->
@@ -155,7 +194,7 @@ input {
 
   <input placeholder="Enter email">
   <br>
-  <a class="btn">Join waitlist</a>
+  <a href="#" class="btn">Join waitlist</a>
 </section>
 
 </body>
