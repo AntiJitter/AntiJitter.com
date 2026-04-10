@@ -11,8 +11,8 @@ from ..models import Subscription, User
 router = APIRouter(prefix="/api/subscription", tags=["subscription"])
 
 PLANS = {
-    "solo": {"label": "Solo", "usd": 4.99, "devices": 1},
-    "family": {"label": "Family", "usd": 9.99, "devices": 4},
+    "solo": {"label": "Solo", "usd": 5, "devices": 1},
+    "family": {"label": "Family", "usd": 9, "devices": 4},
 }
 
 
