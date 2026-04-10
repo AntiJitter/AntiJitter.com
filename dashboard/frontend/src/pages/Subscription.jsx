@@ -5,7 +5,7 @@ const PLANS = [
   {
     id: "solo",
     name: "Solo",
-    price: "49 NOK",
+    price: "$4.99",
     period: "/month",
     devices: 1,
     features: ["1 WireGuard device", "Game Mode (Starlink + 4G/5G)", "Real-time dashboard", "7-day free trial"],
@@ -13,7 +13,7 @@ const PLANS = [
   {
     id: "family",
     name: "Family",
-    price: "99 NOK",
+    price: "$9.99",
     period: "/month",
     devices: 4,
     features: ["Up to 4 devices", "Everything in Solo", "Shared Game Mode pool", "7-day free trial"],
