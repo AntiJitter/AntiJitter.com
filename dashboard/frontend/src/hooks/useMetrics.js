@@ -1,26 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const MAX_HISTORY = 120; // 60 seconds at 0.5s intervals
+const MAX_HISTORY = 120; // 60 seconds at 0.5 s intervals
 const API = "";          // proxied via Vite in dev, same-origin in prod
 
-export function useMetrics() {
+export function useMetrics(token = null) {
   const [history, setHistory] = useState([]);
   const [status, setStatus] = useState(null);
   const [events, setEvents] = useState([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef(null);
+  const prevEventsRef = useRef([]);
 
-  // WebSocket for real-time chart data
+  // WebSocket — passes token so backend can log the session
   useEffect(() => {
     function connect() {
       const proto = window.location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${proto}://${window.location.host}/ws/metrics`);
+      const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+      const ws = new WebSocket(`${proto}://${window.location.host}/ws/metrics${qs}`);
       wsRef.current = ws;
 
       ws.onopen = () => setConnected(true);
       ws.onclose = () => {
         setConnected(false);
-        setTimeout(connect, 2000); // auto-reconnect
+        setTimeout(connect, 2000);
       };
       ws.onerror = () => ws.close();
       ws.onmessage = (e) => {
@@ -33,9 +35,9 @@ export function useMetrics() {
     }
     connect();
     return () => wsRef.current?.close();
-  }, []);
+  }, [token]);
 
-  // Poll REST status + events every 2 seconds
+  // Poll REST status + events every 2 s
   const fetchStatus = useCallback(async () => {
     try {
       const [s, e] = await Promise.all([
@@ -43,7 +45,21 @@ export function useMetrics() {
         fetch(`${API}/api/events`).then((r) => r.json()),
       ]);
       setStatus(s);
-      setEvents(e.events);
+
+      // Fire Electron tray notifications for new failover events
+      const incoming = e.events ?? [];
+      const prev = prevEventsRef.current;
+      if (incoming.length > prev.length && window.electronAPI) {
+        const newest = incoming[0];
+        window.electronAPI.notifyFailover({
+          before: newest.latency_before_ms,
+          to: newest.to,
+          after: newest.latency_after_ms,
+          saved: newest.saved_ms,
+        });
+      }
+      prevEventsRef.current = incoming;
+      setEvents(incoming);
     } catch {
       // backend not yet ready
     }

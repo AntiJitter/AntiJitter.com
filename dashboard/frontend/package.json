@@ -1,19 +1,40 @@
 {
   "name": "antijitter-dashboard",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron electron/main.js\"",
+    "electron:build": "npm run build && electron-builder"
   },
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.1",
     "recharts": "^2.13.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.7"
+    "concurrently": "^9.1.2",
+    "electron": "^33.4.0",
+    "electron-builder": "^25.1.8",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.antijitter.app",
+    "productName": "AntíJitter",
+    "directories": { "output": "dist-electron" },
+    "files": ["dist/**/*", "electron/**/*"],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }
