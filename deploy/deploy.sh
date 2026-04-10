@@ -191,7 +191,7 @@ ok "Python deps installed"
 # ─────────────────────────────────────────────────────────────────────────────
 step "Running Alembic database migrations"
 
-cd "$APP_DIR/dashboard"
+cd "$BACKEND_DIR"
 sudo -u "$APP_USER" "$VENV/bin/alembic" \
     -c "$BACKEND_DIR/alembic.ini" \
     upgrade head
