@@ -5,10 +5,11 @@ import ConnectionCard from "../components/ConnectionCard";
 import FailoverLog from "../components/FailoverLog";
 import LatencyChart from "../components/LatencyChart";
 import SessionHistory from "../components/SessionHistory";
+import Connections from "./Connections";
 import { useAuth } from "../contexts/AuthContext";
 import { useMetrics } from "../hooks/useMetrics";
 
-const TABS = ["Live", "History"];
+const TABS = ["Live", "Connections", "History"];
 
 export default function Dashboard() {
   const { user, logout, token } = useAuth();
@@ -109,7 +110,7 @@ export default function Dashboard() {
 
       {/* ── Main content ── */}
       <main style={{ padding: "22px 24px", maxWidth: 1280, margin: "0 auto" }}>
-        {tab === "Live" ? (
+        {tab === "Live" && (
           <>
             {/* Row 1: Connection cards + Bonding panel */}
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
@@ -138,9 +139,11 @@ export default function Dashboard() {
             {/* Row 3: Failover log */}
             <FailoverLog events={events} />
           </>
-        ) : (
-          <SessionHistory />
         )}
+
+        {tab === "Connections" && <Connections />}
+
+        {tab === "History" && <SessionHistory />}
       </main>
     </div>
   );

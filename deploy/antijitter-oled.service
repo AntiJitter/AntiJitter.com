@@ -1,0 +1,29 @@
+[Unit]
+Description=AntíJitter SWITCH OLED Display
+Documentation=https://antijitter.com
+After=network.target antijitter-api.service
+Wants=antijitter-api.service
+
+[Service]
+Type=simple
+User=antijitter
+Group=antijitter
+
+WorkingDirectory=/home/antijitter/antijitter.com/dashboard/switch
+ExecStart=/home/antijitter/venv/bin/python3 oled_display.py
+
+# Auth credentials for the local API
+EnvironmentFile=-/home/antijitter/.env.switch
+
+Restart=always
+RestartSec=5
+
+# Hardware I2C access
+SupplementaryGroups=i2c gpio
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=antijitter-oled
+
+[Install]
+WantedBy=multi-user.target

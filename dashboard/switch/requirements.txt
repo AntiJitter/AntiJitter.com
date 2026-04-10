@@ -1,0 +1,30 @@
+# AntíJitter SWITCH — Raspberry Pi dependencies
+# Install: pip install -r requirements.txt
+
+# ── OLED display ──────────────────────────────────────────────────────────────
+luma.oled>=3.13.0
+Pillow>=10.0.0
+
+# ── Starlink gRPC telemetry ───────────────────────────────────────────────────
+# Polls the dish at 192.168.100.1:9200 for real latency, obstruction, outage data
+grpcio>=1.62.0
+grpcio-tools>=1.62.0
+starlink-grpc-tools>=1.0.0   # pip install starlink-grpc-tools
+
+# ── HTTP client for API pushes ────────────────────────────────────────────────
+httpx>=0.27.0
+
+# ── Async runtime (stdlib on Python 3.11+, listed for clarity) ───────────────
+# asyncio is built-in
+
+# ── Notes ─────────────────────────────────────────────────────────────────────
+# luma.oled requires I2C enabled on the Pi:
+#   sudo raspi-config → Interface Options → I2C → Enable
+#   sudo usermod -aG i2c $USER
+#
+# starlink-grpc-tools source:
+#   https://github.com/sparky8512/starlink-grpc-tools
+#   The dish must be on 192.168.100.1/24 — default Starlink LAN
+#
+# grpcio build may take several minutes on armv7l — use a pre-built wheel:
+#   pip install --only-binary=:all: grpcio grpcio-tools

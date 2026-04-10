@@ -1,0 +1,26 @@
+[Unit]
+Description=AntíJitter SWITCH Starlink gRPC Poller
+Documentation=https://antijitter.com
+After=network.target antijitter-api.service
+Wants=antijitter-api.service
+
+[Service]
+Type=simple
+User=antijitter
+Group=antijitter
+
+WorkingDirectory=/home/antijitter/antijitter.com/dashboard/switch
+ExecStart=/home/antijitter/venv/bin/python3 starlink_poller.py
+
+# Auth credentials + dish IP override if needed
+EnvironmentFile=-/home/antijitter/.env.switch
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=antijitter-starlink
+
+[Install]
+WantedBy=multi-user.target
