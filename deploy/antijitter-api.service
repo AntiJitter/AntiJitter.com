@@ -1,0 +1,49 @@
+[Unit]
+Description=AntíJitter FastAPI backend
+Documentation=https://github.com/AntiJitter/AntiJitter.com
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=exec
+User=__APP_USER__
+Group=__APP_USER__
+
+# Working dir must be dashboard/ so relative imports (backend.main) resolve
+WorkingDirectory=__APP_DIR__/dashboard
+
+# Activate venv + run uvicorn
+ExecStart=__VENV__/bin/uvicorn backend.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 2 \
+    --log-level info \
+    --access-log
+
+# Graceful reload (zero-downtime redeploy via: systemctl reload antijitter-api)
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+# Environment — .env is also loaded by pydantic-settings, this just
+# ensures the venv's site-packages are found regardless of PATH
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=__APP_DIR__
+PrivateTmp=true
+PrivateDevices=true
+
+# Allow wg(8) calls for WireGuard peer management
+AmbientCapabilities=CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target
