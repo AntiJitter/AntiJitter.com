@@ -8,8 +8,12 @@ export function useMetrics(token = null) {
   const [status, setStatus] = useState(null);
   const [events, setEvents] = useState([]);
   const [connected, setConnected] = useState(false);
+  // t-values (seconds from server start) at which failovers were first detected
+  const [failoverTs, setFailoverTs] = useState([]);
+
   const wsRef = useRef(null);
   const prevEventsRef = useRef([]);
+  const latestTRef = useRef(0); // tracks most recent `t` from WS stream
 
   // WebSocket — passes token so backend can log the session
   useEffect(() => {
@@ -27,6 +31,7 @@ export function useMetrics(token = null) {
       ws.onerror = () => ws.close();
       ws.onmessage = (e) => {
         const point = JSON.parse(e.data);
+        latestTRef.current = point.t ?? latestTRef.current;
         setHistory((prev) => {
           const next = [...prev, point];
           return next.length > MAX_HISTORY ? next.slice(-MAX_HISTORY) : next;
@@ -46,18 +51,28 @@ export function useMetrics(token = null) {
       ]);
       setStatus(s);
 
-      // Fire Electron tray notifications for new failover events
       const incoming = e.events ?? [];
       const prev = prevEventsRef.current;
-      if (incoming.length > prev.length && window.electronAPI) {
-        const newest = incoming[0];
-        window.electronAPI.notifyFailover({
-          before: newest.latency_before_ms,
-          to: newest.to,
-          after: newest.latency_after_ms,
-          saved: newest.saved_ms,
+
+      if (incoming.length > prev.length) {
+        // Record the current stream `t` so the chart can draw a vertical marker
+        setFailoverTs((existing) => {
+          const t = latestTRef.current;
+          return t > 0 ? [...existing.slice(-19), t] : existing; // keep last 20
         });
+
+        // Fire Electron tray notifications for new failover events
+        if (window.electronAPI) {
+          const newest = incoming[0];
+          window.electronAPI.notifyFailover({
+            before: newest.latency_before_ms,
+            to: newest.to,
+            after: newest.latency_after_ms,
+            saved: newest.saved_ms,
+          });
+        }
       }
+
       prevEventsRef.current = incoming;
       setEvents(incoming);
     } catch {
@@ -71,5 +86,5 @@ export function useMetrics(token = null) {
     return () => clearInterval(id);
   }, [fetchStatus]);
 
-  return { history, status, events, connected };
+  return { history, status, events, connected, failoverTs };
 }

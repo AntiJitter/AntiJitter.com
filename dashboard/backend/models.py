@@ -20,6 +20,7 @@ class User(Base):
 
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="user")
     sessions: Mapped[list["Session"]] = relationship(back_populates="user")
+    outage_events: Mapped[list["OutageEvent"]] = relationship(back_populates="user")
 
 
 class Subscription(Base):
@@ -57,3 +58,26 @@ class Session(Base):
     failover_count: Mapped[int] = mapped_column(Integer, default=0)
 
     user: Mapped["User"] = relationship(back_populates="sessions")
+
+
+class OutageEvent(Base):
+    """A Starlink outage detected by the SWITCH poller.
+
+    Opened when the dish reports obstructed/no-sats; closed when signal
+    recovers. Duration and peak latency are stored for the history view.
+    """
+    __tablename__ = "outage_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # "OBSTRUCTED" | "NO_SATS" | "BOOTING" | "SEARCHING" | etc.
+    cause: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Latency at onset of outage (shows how bad it got)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    user: Mapped["User"] = relationship(back_populates="outage_events")
