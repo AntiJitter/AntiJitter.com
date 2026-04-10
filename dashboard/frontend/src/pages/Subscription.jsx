@@ -8,7 +8,7 @@ const PLANS = [
     price: "49 NOK",
     period: "/month",
     devices: 1,
-    features: ["1 WireGuard device", "Starlink + 4G/5G bonding", "Real-time dashboard", "7-day free trial"],
+    features: ["1 WireGuard device", "Game Mode (Starlink + 4G/5G)", "Real-time dashboard", "7-day free trial"],
   },
   {
     id: "family",
@@ -16,7 +16,7 @@ const PLANS = [
     price: "99 NOK",
     period: "/month",
     devices: 4,
-    features: ["Up to 4 devices", "Everything in Solo", "Shared bonding pool", "7-day free trial"],
+    features: ["Up to 4 devices", "Everything in Solo", "Shared Game Mode pool", "7-day free trial"],
     highlight: true,
   },
 ];

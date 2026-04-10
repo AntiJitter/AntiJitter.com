@@ -13,7 +13,7 @@ const LINES = [
   { key: "starlink", label: "Starlink", color: "#ff9f0a", dashed: false },
   { key: "4g",       label: "4G LTE",  color: "#bf5af2", dashed: false },
   { key: "5g",       label: "5G",      color: "#0a84ff", dashed: false },
-  { key: "bonded",   label: "Bonded",  color: "#00c8d7", dashed: false },
+  { key: "bonded",   label: "Game Mode",  color: "#00c8d7", dashed: false },
 ];
 
 const CustomTooltip = ({ active, payload }) => {
@@ -52,7 +52,7 @@ export default function LatencyChart({ history }) {
           Latency — last 60 seconds
         </h3>
         <p style={{ fontSize: 12, color: "var(--dim)", marginTop: 4 }}>
-          AntíJitter bonded output stays flat even during Starlink satellite handoffs
+          Game Mode keeps your latency flat even during Starlink satellite handoffs
         </p>
       </div>
 

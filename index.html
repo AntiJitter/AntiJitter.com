@@ -79,12 +79,82 @@ nav {
   padding:20px 40px;
   border-bottom:1px solid #1a1a1a;
   max-width:100%;
+  gap:16px;
 }
 
 nav .logo {
   font-size:20px;
   font-weight:800;
   letter-spacing:-0.5px;
+}
+
+nav .nav-links {
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+/* Game Mode toggle graphic */
+.gm-demo {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:32px;
+  margin:40px auto 0;
+  max-width:500px;
+}
+
+.gm-row {
+  display:flex;
+  align-items:center;
+  gap:20px;
+  width:100%;
+  justify-content:center;
+}
+
+.gm-label {
+  font-size:13px;
+  font-weight:600;
+  color:var(--dim);
+  width:80px;
+  text-align:right;
+}
+
+.gm-label.right {
+  text-align:left;
+}
+
+.gm-track {
+  width:56px;
+  height:30px;
+  border-radius:99px;
+  position:relative;
+  transition:background 0.3s;
+  flex-shrink:0;
+}
+
+.gm-track.on  { background:var(--teal); }
+.gm-track.off { background:#333; }
+
+.gm-thumb {
+  position:absolute;
+  top:4px;
+  width:22px;
+  height:22px;
+  border-radius:50%;
+  background:#fff;
+  box-shadow:0 1px 4px rgba(0,0,0,0.4);
+}
+
+.gm-track.on  .gm-thumb { left:30px; }
+.gm-track.off .gm-thumb { left:4px; }
+
+.gm-desc {
+  font-size:14px;
+  color:var(--dim);
+  line-height:1.5;
+  max-width:340px;
+  text-align:center;
 }
 
 input {
@@ -102,7 +172,10 @@ input {
 <!-- NAV -->
 <nav>
   <span class="logo">Antí<span style="color:var(--teal)">Jitter</span></span>
-  <a href="/dashboard/" class="btn-ghost">Live Dashboard →</a>
+  <div class="nav-links">
+    <a href="/dashboard/" class="btn-ghost" style="margin:0;padding:10px 20px;font-size:14px">Live Dashboard →</a>
+    <a href="/login" class="btn-ghost" style="margin:0;padding:10px 20px;font-size:14px">My Account</a>
+  </div>
 </nav>
 
 <!-- HEADER IMAGE -->
@@ -164,9 +237,46 @@ input {
   </p>
 
   <p>
-    <strong>App:</strong> Phone-based bonding hotspot<br>
+    <strong>App:</strong> Phone-based Game Mode hotspot<br>
     <strong>SWITCH:</strong> Dedicated router with 4G + 5G + Starlink
   </p>
+</section>
+
+<!-- GAME MODE -->
+<section>
+  <h2>One button.<br>Dead calm gaming.</h2>
+  <p>
+    Game Mode is the core of AntíJitter.<br>
+    One toggle changes everything.
+  </p>
+
+  <div class="gm-demo">
+
+    <div style="width:100%">
+      <div class="gm-row">
+        <span class="gm-label">Gaming</span>
+        <div class="gm-track on"><div class="gm-thumb"></div></div>
+        <span class="gm-label right" style="color:var(--teal);font-size:14px">Game Mode ON</span>
+      </div>
+      <p class="gm-desc" style="margin-top:14px">
+        Every packet travels every connection at once.<br>
+        <strong style="color:var(--white)">Zero spikes. Zero disconnects.</strong>
+      </p>
+    </div>
+
+    <div style="width:100%;opacity:0.6">
+      <div class="gm-row">
+        <span class="gm-label">Downloading</span>
+        <div class="gm-track off"><div class="gm-thumb"></div></div>
+        <span class="gm-label right" style="font-size:14px">Game Mode OFF</span>
+      </div>
+      <p class="gm-desc" style="margin-top:14px">
+        Full bandwidth for updates, streams, and downloads.<br>
+        <strong style="color:var(--white)">All speed. No waste.</strong>
+      </p>
+    </div>
+
+  </div>
 </section>
 
 <!-- PROOF -->
