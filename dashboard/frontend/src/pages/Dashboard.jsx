@@ -4,6 +4,7 @@ import BondingPanel from "../components/BondingPanel";
 import ConnectionCard from "../components/ConnectionCard";
 import FailoverLog from "../components/FailoverLog";
 import LatencyChart from "../components/LatencyChart";
+import OutageTimeline from "../components/OutageTimeline";
 import SessionHistory from "../components/SessionHistory";
 import Connections from "./Connections";
 import { useAuth } from "../contexts/AuthContext";
@@ -13,10 +14,14 @@ const TABS = ["Live", "Connections", "History"];
 
 export default function Dashboard() {
   const { user, logout, token } = useAuth();
-  const { history, status, events, connected } = useMetrics(token);
+  const { history, status, events, connected, failoverTs } = useMetrics(token);
   const navigate = useNavigate();
   const conns = status?.connections;
   const [tab, setTab] = useState("Live");
+
+  // Subscription check — free tier sees dashboard but Game Mode is locked
+  const sub = user?.subscription;
+  const isSubscribed = sub?.status === "active" || sub?.status === "trialing";
 
   function handleLogout() {
     logout();
@@ -26,19 +31,17 @@ export default function Dashboard() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--black)" }}>
       {/* ── Header ── */}
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "14px 24px",
-          borderBottom: "1px solid var(--border)",
-          background: "var(--surface)",
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
-        }}
-      >
+      <header style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "14px 24px",
+        borderBottom: "1px solid var(--border)",
+        background: "var(--surface)",
+        position: "sticky",
+        top: 0,
+        zIndex: 10,
+      }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.5px" }}>
             Antí<span style={{ color: "var(--teal)" }}>Jitter</span>
@@ -69,17 +72,13 @@ export default function Dashboard() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: connected ? "var(--green)" : "var(--red)",
-                boxShadow: connected ? "0 0 6px var(--green)" : "none",
-                display: "inline-block",
-                transition: "background 0.3s",
-              }}
-            />
+            <span style={{
+              width: 7, height: 7, borderRadius: "50%",
+              background: connected ? "var(--green)" : "var(--red)",
+              boxShadow: connected ? "0 0 6px var(--green)" : "none",
+              display: "inline-block",
+              transition: "background 0.3s",
+            }} />
             <span style={{ fontSize: 12, color: "var(--dim)" }}>
               {connected ? "Live" : "Reconnecting…"}
             </span>
@@ -87,20 +86,19 @@ export default function Dashboard() {
 
           <Link
             to="/dashboard/subscription"
-            style={{ fontSize: 12, color: "var(--dim)", textDecoration: "none" }}
+            style={{ fontSize: 12, color: isSubscribed ? "var(--green)" : "var(--dim)", textDecoration: "none" }}
           >
-            {user?.subscription?.status === "active" ? "✓ Active" : "Subscribe"}
+            {isSubscribed
+              ? `✓ ${sub.status === "trialing" ? "Trial" : "Active"}`
+              : "Subscribe →"}
           </Link>
 
           <button
             onClick={handleLogout}
             style={{
-              fontSize: 12,
-              color: "var(--dim)",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              fontFamily: "inherit",
+              fontSize: 12, color: "var(--dim)",
+              background: "none", border: "none",
+              cursor: "pointer", fontFamily: "inherit",
             }}
           >
             Sign out
@@ -128,15 +126,21 @@ export default function Dashboard() {
                 packetsRouted={status?.packets_routed}
                 totalFailovers={status?.total_failovers}
                 uptimeSeconds={status?.uptime_seconds}
+                isSubscribed={isSubscribed}
               />
             </div>
 
-            {/* Row 2: Latency chart */}
+            {/* Row 2: Latency chart with handoff markers */}
             <div style={{ marginBottom: 18 }}>
-              <LatencyChart history={history} />
+              <LatencyChart history={history} failoverTs={failoverTs} />
             </div>
 
-            {/* Row 3: Failover log */}
+            {/* Row 3: Outage timeline */}
+            <div style={{ marginBottom: 18 }}>
+              <OutageTimeline isSubscribed={isSubscribed} />
+            </div>
+
+            {/* Row 4: Failover log */}
             <FailoverLog events={events} />
           </>
         )}
