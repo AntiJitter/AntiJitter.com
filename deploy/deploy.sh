@@ -101,14 +101,16 @@ systemctl enable --now postgresql
 
 DB_PASSWORD=$(openssl rand -hex 24)
 
-# Create role + database (idempotent)
-sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" \
-    | grep -q 1 || sudo -u postgres psql -c \
-    "CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';"
+# Create or update role (idempotent — always syncs password so re-runs work)
+if sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1; then
+    sudo -u postgres psql -c "ALTER ROLE $DB_USER WITH PASSWORD '$DB_PASSWORD';" > /dev/null
+else
+    sudo -u postgres psql -c "CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';" > /dev/null
+fi
 
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" \
     | grep -q 1 || sudo -u postgres psql -c \
-    "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
+    "CREATE DATABASE $DB_NAME OWNER $DB_USER;" > /dev/null
 
 DATABASE_URL="postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@localhost/${DB_NAME}"
 ok "PostgreSQL ready  (db=$DB_NAME user=$DB_USER)"
