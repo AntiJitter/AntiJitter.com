@@ -204,7 +204,7 @@ ok "Database schema up to date"
 # ─────────────────────────────────────────────────────────────────────────────
 step "Building React frontend"
 
-sudo -u "$APP_USER" bash -c "cd '$FRONTEND_DIR' && npm ci --silent && npm run build"
+sudo -u "$APP_USER" bash -c "cd '$FRONTEND_DIR' && npm install --silent && npm run build"
 ok "Frontend built → $STATIC_DIR"
 
 # ─────────────────────────────────────────────────────────────────────────────
