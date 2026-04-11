@@ -191,8 +191,8 @@ ok "Python deps installed"
 # ─────────────────────────────────────────────────────────────────────────────
 step "Running Alembic database migrations"
 
-cd "$BACKEND_DIR"
-sudo -u "$APP_USER" "$VENV/bin/alembic" \
+cd "$APP_DIR/dashboard"
+sudo -u "$APP_USER" env DATABASE_URL="$DATABASE_URL" "$VENV/bin/alembic" \
     -c "$BACKEND_DIR/alembic.ini" \
     upgrade head
 ok "Database schema up to date"
