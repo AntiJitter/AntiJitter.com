@@ -3,6 +3,8 @@ Description=AntíJitter FastAPI backend
 Documentation=https://github.com/AntiJitter/AntiJitter.com
 After=network.target postgresql.service
 Wants=postgresql.service
+StartLimitIntervalSec=60s
+StartLimitBurst=5
 
 [Service]
 Type=exec
@@ -26,8 +28,6 @@ ExecReload=/bin/kill -HUP $MAINPID
 # Restart policy
 Restart=on-failure
 RestartSec=5s
-StartLimitIntervalSec=60s
-StartLimitBurst=5
 
 # Environment — .env is also loaded by pydantic-settings, this just
 # ensures the venv's site-packages are found regardless of PATH
