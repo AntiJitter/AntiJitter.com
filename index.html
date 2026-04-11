@@ -3,309 +3,528 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AntíJitter — Dead calm gaming.</title>
+
+<!-- ── Primary SEO ──────────────────────────────────────────────────────── -->
+<title>Starlink Jitter Test — Free Real-Time Ping Checker | AntíJitter</title>
+<meta name="description" content="Test your Starlink satellite internet ping and jitter for free. See latency spikes in real time, detect satellite handoffs, and learn how to eliminate jitter with AntíJitter.">
+<meta name="keywords" content="starlink jitter test, starlink ping test, starlink latency checker, starlink ping checker, starlink jitter, fix starlink lag, starlink gaming lag">
+<link rel="canonical" href="https://antijitter.com/">
+
+<!-- ── Open Graph ───────────────────────────────────────────────────────── -->
+<meta property="og:type"        content="website">
+<meta property="og:url"         content="https://antijitter.com/">
+<meta property="og:title"       content="Free Starlink Jitter Test | AntíJitter">
+<meta property="og:description" content="Test your Starlink ping and jitter in real time. See satellite handoff spikes and learn how to fix them.">
+<meta property="og:image"       content="https://antijitter.com/og-image.png">
+
+<!-- ── Twitter Card ─────────────────────────────────────────────────────── -->
+<meta name="twitter:card"        content="summary_large_image">
+<meta name="twitter:title"       content="Free Starlink Jitter Test | AntíJitter">
+<meta name="twitter:description" content="Test your Starlink ping and jitter live. Satellite handoffs show up as spikes.">
+
+<!-- ── Schema.org ───────────────────────────────────────────────────────── -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Starlink Jitter Test",
+  "description": "Free real-time Starlink ping and jitter checker. Detects satellite handoff spikes automatically.",
+  "url": "https://antijitter.com",
+  "applicationCategory": "NetworkingApplication",
+  "operatingSystem": "Web Browser",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "provider": { "@type": "Organization", "name": "AntíJitter", "url": "https://antijitter.com" }
+}
+</script>
 
 <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 
 <style>
 :root {
-  --black:#0a0a0a;
-  --white:#f5f5f7;
-  --dim:#86868b;
-  --teal:#00c8d7;
+  --black:#0a0a0a; --surface:#111; --border:#1e1e1e;
+  --white:#f5f5f7; --dim:#86868b;
+  --teal:#00c8d7;  --teal-dim:rgba(0,200,215,0.08);
+  --green:#30d158; --orange:#ff9f0a; --red:#ff453a;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Mona Sans',system-ui;background:var(--black);color:var(--white)}
+a{text-decoration:none;color:inherit}
+strong{color:var(--white)}
+
+nav{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:18px 40px;border-bottom:1px solid var(--border);
+}
+.logo{font-size:20px;font-weight:800;letter-spacing:-0.5px}
+.nav-links{display:flex;align-items:center;gap:12px}
+.btn-outline{
+  padding:10px 20px;border-radius:99px;border:1.5px solid var(--teal);
+  color:var(--teal);font-size:14px;font-weight:600;font-family:inherit;
+  background:transparent;cursor:pointer;
+}
+.btn-solid{
+  display:inline-block;padding:14px 32px;border-radius:99px;
+  background:var(--teal);color:#000;font-weight:700;font-size:15px;
+  border:none;cursor:pointer;font-family:inherit;
+}
+.btn-ghost-sm{
+  display:inline-block;padding:10px 24px;border-radius:99px;
+  border:1px solid #333;color:var(--dim);font-size:14px;
 }
 
-body {
-  margin:0;
-  font-family:'Mona Sans', system-ui;
-  background:var(--black);
-  color:var(--white);
-  text-align:center;
+section.wrap{max-width:800px;margin:0 auto;padding:80px 24px;text-align:center}
+h1{font-size:clamp(40px,8vw,80px);letter-spacing:-3px;line-height:1.05;margin-bottom:16px}
+h2{font-size:clamp(28px,5vw,52px);letter-spacing:-2px;margin-bottom:16px}
+.sub{font-size:17px;color:var(--dim);line-height:1.6;max-width:560px;margin:0 auto}
+
+/* ── Jitter test tool ─────────────────────────────────────────────────── */
+#tool{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;padding:36px 32px;margin:40px auto 0;
+  max-width:720px;
+}
+#ping-number{
+  font-size:clamp(80px,16vw,140px);font-weight:800;
+  letter-spacing:-6px;line-height:1;
+  color:#2a2a2a;
+  transition:color 0.3s;
+  font-variant-numeric:tabular-nums;
+}
+#ping-unit{font-size:18px;color:var(--dim);margin-top:6px;margin-bottom:24px}
+
+.stats-row{display:flex;justify-content:center;gap:36px;flex-wrap:wrap;margin-bottom:24px}
+.stat-box{text-align:center}
+.stat-val{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--white)}
+.stat-lbl{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:0.06em;margin-top:3px}
+
+#chart-wrap{
+  background:#0d0d0d;border-radius:10px;height:150px;
+  display:flex;align-items:flex-end;gap:2px;overflow:hidden;
+  padding:12px 12px 0;position:relative;margin-bottom:20px;
+}
+.chart-empty{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:#2a2a2a;font-size:14px;
+}
+.bar{
+  flex:1 0 0;max-width:12px;border-radius:2px 2px 0 0;
+  transition:height 0.2s;opacity:0.75;
+}
+.bar.latest{opacity:1}
+.bar.spike{box-shadow:0 0 8px var(--red)}
+
+#baseline-line{
+  position:absolute;left:12px;right:12px;
+  border-top:1px dashed rgba(0,200,215,0.35);
+  pointer-events:none;
+}
+#baseline-label{
+  font-size:9px;color:rgba(0,200,215,0.45);padding-left:4px;
 }
 
-section {
-  padding:100px 20px;
-  max-width:900px;
-  margin:auto;
+#progress-wrap{height:4px;background:#1a1a1a;border-radius:99px;overflow:hidden;margin-bottom:24px}
+#progress-bar{height:100%;background:var(--teal);border-radius:99px;width:0%;transition:width 0.5s}
+
+#start-btn{
+  padding:16px 56px;border-radius:99px;background:var(--teal);color:#000;
+  font-weight:700;font-size:16px;border:none;cursor:pointer;font-family:inherit;
 }
+#start-btn:hover{opacity:0.9}
+#test-note{font-size:13px;color:#444;margin-top:12px}
 
-h1 {
-  font-size:clamp(48px,10vw,110px);
-  letter-spacing:-3px;
-}
-
-h2 {
-  font-size:clamp(28px,6vw,56px);
-}
-
-p {
-  color:var(--dim);
-  font-size:18px;
-  line-height:1.6;
-}
-
-strong { color:white; }
-
-.btn {
-  display:inline-block;
-  margin-top:20px;
-  padding:16px 32px;
-  background:var(--teal);
-  color:#000;
-  border-radius:999px;
-  font-weight:600;
-  text-decoration:none;
-}
-
-.btn-ghost {
-  display:inline-block;
-  margin-top:12px;
-  margin-left:12px;
-  padding:14px 28px;
-  background:transparent;
-  color:var(--teal);
-  border:1.5px solid var(--teal);
-  border-radius:999px;
-  font-weight:600;
-  text-decoration:none;
-  font-family:inherit;
-  font-size:inherit;
-}
-
-nav {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  padding:20px 40px;
-  border-bottom:1px solid #1a1a1a;
-  max-width:100%;
-  gap:16px;
-}
-
-nav .logo {
-  font-size:20px;
-  font-weight:800;
-  letter-spacing:-0.5px;
-}
-
-nav .nav-links {
-  display:flex;
-  align-items:center;
-  gap:12px;
-}
-
-/* Game Mode toggle graphic */
-.gm-demo {
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:32px;
-  margin:40px auto 0;
-  max-width:500px;
-}
-
-.gm-row {
-  display:flex;
-  align-items:center;
-  gap:20px;
-  width:100%;
-  justify-content:center;
-}
-
-.gm-label {
-  font-size:13px;
-  font-weight:600;
-  color:var(--dim);
-  width:80px;
-  text-align:right;
-}
-
-.gm-label.right {
+/* Results */
+#results{
+  display:none;border-radius:14px;padding:28px;margin-top:24px;
+  border:1px solid transparent;
   text-align:left;
 }
+#result-grade{font-size:30px;font-weight:800;margin-bottom:6px}
+#result-detail{font-size:14px;color:var(--dim);line-height:1.65;margin-bottom:20px}
+.result-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;padding-top:20px;border-top:1px solid #1e1e1e}
 
-.gm-track {
-  width:56px;
-  height:30px;
-  border-radius:99px;
-  position:relative;
-  transition:background 0.3s;
-  flex-shrink:0;
+/* ── Content sections ─────────────────────────────────────────────────── */
+.divider{border:none;border-top:1px solid var(--border);margin:0}
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;text-align:left;margin-top:32px}
+.feature-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px}
+.feature-card h3{font-size:16px;font-weight:700;margin-bottom:8px;color:var(--teal)}
+.feature-card p{font-size:14px;color:var(--dim);line-height:1.6}
+
+.price-card{
+  background:var(--surface);border:1px solid rgba(0,200,215,0.3);
+  border-radius:16px;padding:36px;max-width:400px;margin:32px auto 0;
 }
+.price-amt{font-size:52px;font-weight:800;letter-spacing:-2px;color:var(--teal)}
+.price-features{list-style:none;margin-top:20px;text-align:left}
+.price-features li{font-size:14px;color:var(--dim);padding:7px 0;border-bottom:1px solid var(--border)}
+.price-features li::before{content:"✓ ";color:var(--teal)}
 
-.gm-track.on  { background:var(--teal); }
-.gm-track.off { background:#333; }
-
-.gm-thumb {
-  position:absolute;
-  top:4px;
-  width:22px;
-  height:22px;
-  border-radius:50%;
-  background:#fff;
-  box-shadow:0 1px 4px rgba(0,0,0,0.4);
-}
-
-.gm-track.on  .gm-thumb { left:30px; }
-.gm-track.off .gm-thumb { left:4px; }
-
-.gm-desc {
-  font-size:14px;
-  color:var(--dim);
-  line-height:1.5;
-  max-width:340px;
-  text-align:center;
-}
-
-input {
-  padding:14px;
-  border-radius:999px;
-  border:none;
-  width:260px;
-  margin-top:20px;
-}
+footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--dim);font-size:13px}
 </style>
 </head>
-
 <body>
 
-<!-- NAV -->
+<!-- ── Nav ────────────────────────────────────────────────────────────── -->
 <nav>
   <span class="logo">Antí<span style="color:var(--teal)">Jitter</span></span>
   <div class="nav-links">
-    <a href="https://app.antijitter.com" class="btn-ghost" style="margin:0;padding:10px 20px;font-size:14px">Live Dashboard →</a>
-    <a href="https://app.antijitter.com/login" class="btn-ghost" style="margin:0;padding:10px 20px;font-size:14px">My Account</a>
+    <a href="https://app.antijitter.com/jitter-test" class="btn-outline">Full Jitter Test</a>
+    <a href="https://app.antijitter.com/login" class="btn-outline" style="color:var(--dim);border-color:#333">Log in</a>
+    <a href="https://app.antijitter.com/register" class="btn-solid" style="padding:10px 20px;font-size:14px">Start free trial</a>
   </div>
 </nav>
 
-<!-- HEADER IMAGE -->
-<section>
-  <img src="https://i.ibb.co/chSRpktb/file-00000000bb48720abcec56a0db03e5ed-2.jpg" alt="AntíJitter Logo" style="max-width:300px; width:100%; height:auto; margin:40px auto 20px; display:block;">
-</section>
-
-<!-- HERO -->
-<section>
-  <h1>Dead calm<br>gaming.</h1>
-  <p>
-    Starlink drops. Spikes. Disconnects.<br>
-    <strong>AntíJitter combines all your internet connections into one stable link.</strong>
+<!-- ── Hero + Live Tool ────────────────────────────────────────────────── -->
+<section class="wrap" style="padding-top:60px">
+  <p style="font-size:13px;color:var(--teal);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px">
+    Free Starlink Jitter Test
+  </p>
+  <h1>Is your Starlink<br>jittering?</h1>
+  <p class="sub">
+    Find out in 60 seconds — free, no account needed.<br>
+    Satellite handoff spikes appear in real time.
   </p>
 
-  <input placeholder="Enter email">
-  <br>
-  <a href="#" class="btn">Get early access</a>
-  <br>
-  <a href="https://app.antijitter.com" class="btn-ghost" style="margin-top:16px;display:inline-block">See it live →</a>
-</section>
+  <!-- Live Tool -->
+  <div id="tool">
+    <div id="ping-number">—</div>
+    <div id="ping-unit">milliseconds</div>
 
-<!-- PROBLEM -->
-<section>
-  <h2>Satellite handoffs break gaming.</h2>
-  <p>
-    Starlink constantly switches satellites.<br><br>
-    This causes <strong>packet loss, latency spikes, and disconnects</strong>.
-    <br><br>
-    VPNs and “gaming boosters” still rely on one connection.
-    <strong>When it drops, everything drops.</strong>
-  </p>
-</section>
-
-<!-- SOLUTION -->
-<section>
-  <h2>Every packet. Every path.</h2>
-  <p>
-    AntíJitter sends every packet across all connections simultaneously.
-    <br><br>
-    The first packet to arrive is used.<br>
-    The rest are discarded.
-    <br><br>
-    <strong>No switching. No lag spikes. No disconnects.</strong>
-  </p>
-</section>
-
-<!-- PRODUCTS -->
-<section>
-  <h2>Two products. One system.</h2>
-  <p>
-    Start instantly with the app.<br>
-    Upgrade to <strong>AntíJitter SWITCH</strong> for full home stability.
-
-<section>
-  <img src="https://i.ibb.co/3LbkxfL/file-00000000bb48720abcec56a0db03e5ed.png" alt="AntíJitter Logo" style="max-width:300px; width:100%; height:auto; margin:40px auto 20px; display:block;">
-</section>
-
-  </p>
-
-  <p>
-    <strong>App:</strong> Phone-based Game Mode hotspot<br>
-    <strong>SWITCH:</strong> Dedicated router with 4G + 5G + Starlink
-  </p>
-</section>
-
-<!-- GAME MODE -->
-<section>
-  <h2>One button.<br>Dead calm gaming.</h2>
-  <p>
-    Game Mode is the core of AntíJitter.<br>
-    One toggle changes everything.
-  </p>
-
-  <div class="gm-demo">
-
-    <div style="width:100%">
-      <div class="gm-row">
-        <span class="gm-label">Gaming</span>
-        <div class="gm-track on"><div class="gm-thumb"></div></div>
-        <span class="gm-label right" style="color:var(--teal);font-size:14px">Game Mode ON</span>
-      </div>
-      <p class="gm-desc" style="margin-top:14px">
-        Every packet travels every connection at once.<br>
-        <strong style="color:var(--white)">Zero spikes. Zero disconnects.</strong>
-      </p>
+    <div class="stats-row">
+      <div class="stat-box"><div class="stat-val" id="s-jitter">—</div><div class="stat-lbl">Jitter</div></div>
+      <div class="stat-box"><div class="stat-val" id="s-spikes">—</div><div class="stat-lbl">Spikes</div></div>
+      <div class="stat-box"><div class="stat-val" id="s-avg">—</div><div class="stat-lbl">Avg ping</div></div>
+      <div class="stat-box"><div class="stat-val" id="s-samples">—</div><div class="stat-lbl">Samples</div></div>
     </div>
 
-    <div style="width:100%;opacity:0.6">
-      <div class="gm-row">
-        <span class="gm-label">Downloading</span>
-        <div class="gm-track off"><div class="gm-thumb"></div></div>
-        <span class="gm-label right" style="font-size:14px">Game Mode OFF</span>
+    <div id="chart-wrap">
+      <div class="chart-empty" id="chart-empty">Press Start Test to begin</div>
+      <div id="baseline-line" style="display:none">
+        <span id="baseline-label"></span>
       </div>
-      <p class="gm-desc" style="margin-top:14px">
-        Full bandwidth for updates, streams, and downloads.<br>
-        <strong style="color:var(--white)">All speed. No waste.</strong>
-      </p>
     </div>
 
+    <div id="progress-wrap" style="display:none">
+      <div id="progress-bar"></div>
+    </div>
+
+    <div style="text-align:center">
+      <button id="start-btn" onclick="startTest()">Start Test</button>
+      <div id="test-note">60-second test · No account required</div>
+    </div>
+
+    <div id="results">
+      <div id="result-grade"></div>
+      <div id="result-detail"></div>
+      <div class="result-actions" id="result-actions"></div>
+    </div>
   </div>
 </section>
 
-<!-- PROOF -->
-<section>
-  <h2>100+ seamless failovers.</h2>
-  <p>
-    Tested under extreme instability conditions.<br>
-    <strong>Zero disconnects. Stable gameplay.</strong>
+<hr class="divider">
+
+<!-- ── What is jitter — SEO content ──────────────────────────────────── -->
+<section class="wrap">
+  <h2>What is Starlink jitter?</h2>
+  <p class="sub" style="margin-bottom:32px">
+    Jitter is the variation in your ping — and it's the real reason Starlink gaming feels broken.
+  </p>
+  <div class="feature-grid" style="text-align:left">
+    <div class="feature-card">
+      <h3>Satellite handoffs</h3>
+      <p>Starlink continuously switches between satellites in low Earth orbit. Each handoff causes a brief coverage gap — your games see this as a 200–400ms spike every 45 seconds.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Why ping alone doesn't matter</h3>
+      <p>A 40ms average ping sounds great. But if it spikes to 400ms for half a second during every handoff, you're rubber-banding and disconnecting regardless.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Rain fade & obstruction</h3>
+      <p>Bad weather and trees cause additional outages on top of handoffs. Each outage shows up as a spike in our test — and a disconnect in your game.</p>
+    </div>
+    <div class="feature-card">
+      <h3>The fix: path bonding</h3>
+      <p>AntiJitter bonds Starlink with 4G/5G simultaneously. When Starlink drops, 4G covers the gap in milliseconds. Zero spikes. Zero disconnects.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── Problem ────────────────────────────────────────────────────────── -->
+<section class="wrap">
+  <h2>Every 45 seconds.<br>Your game breaks.</h2>
+  <p class="sub">
+    Starlink's orbital mechanics mean satellite handoffs are <strong>not optional</strong>.
+    VPNs and gaming boosters can't fix this — they still rely on one connection.
+    <strong>When Starlink handoffs, everything drops.</strong>
   </p>
 </section>
 
-<!-- MARKET -->
-<section>
-  <h2>Millions of unstable connections.</h2>
-  <p>
-    Starlink users worldwide experience latency spikes.<br>
-    AntíJitter targets a $450M+ market of users needing stability.
+<hr class="divider">
+
+<!-- ── Solution ───────────────────────────────────────────────────────── -->
+<section class="wrap">
+  <h2>Every packet.<br>Every path.</h2>
+  <p class="sub">
+    AntíJitter sends every packet through all your connections simultaneously.
+    Starlink + 4G + 5G — all at once. The fastest packet wins.
+    <br><br>
+    <strong>No switching. No spikes. No disconnects.</strong>
   </p>
 </section>
 
-<!-- CTA -->
-<section>
+<hr class="divider">
+
+<!-- ── Product ────────────────────────────────────────────────────────── -->
+<section class="wrap">
+  <h2>One price.<br>Unlimited devices.</h2>
+  <p class="sub">One household subscription covers every device on your network.</p>
+
+  <div class="price-card">
+    <div style="font-size:13px;color:var(--teal);font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px">AntíJitter</div>
+    <div class="price-amt">$5</div>
+    <div style="font-size:14px;color:var(--dim);margin-top:4px">/month after 7-day free trial</div>
+    <ul class="price-features">
+      <li>Full Game Mode — all connections bonded</li>
+      <li>Unlimited devices in your home</li>
+      <li>Real-time latency dashboard</li>
+      <li>WireGuard VPN — 1-click setup</li>
+      <li>Automatic failover — zero configuration</li>
+      <li>Cancel anytime</li>
+    </ul>
+    <a href="https://app.antijitter.com/register" class="btn-solid" style="display:block;text-align:center;margin-top:24px">
+      Start 7-day free trial →
+    </a>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ── SWITCH hardware ────────────────────────────────────────────────── -->
+<section class="wrap">
+  <h2>AntíJitter SWITCH</h2>
+  <p class="sub">
+    Dedicated router with built-in 4G + 5G modems and Starlink bonding.
+    Plug in, turn on Game Mode, never think about it again.
+    <br><br>
+    <strong>Coming soon — <a href="#waitlist" style="color:var(--teal)">join the waitlist</a>.</strong>
+  </p>
+</section>
+
+<hr class="divider">
+
+<!-- ── Waitlist ───────────────────────────────────────────────────────── -->
+<section class="wrap" id="waitlist">
   <h2>Be first.</h2>
-  <p>Join early access before Kickstarter launch.</p>
-
-  <input placeholder="Enter email">
-  <br>
-  <a href="#" class="btn">Join waitlist</a>
+  <p class="sub" style="margin-bottom:24px">Join the waitlist for AntíJitter SWITCH hardware.</p>
+  <form onsubmit="submitWaitlist(event)" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+    <input
+      id="waitlist-email"
+      type="email" placeholder="your@email.com" required
+      style="padding:14px 20px;border-radius:99px;border:1px solid #333;background:#111;color:var(--white);font-size:15px;width:260px;font-family:inherit"
+    >
+    <button type="submit" class="btn-solid">Join waitlist</button>
+  </form>
+  <p id="waitlist-thanks" style="display:none;color:var(--teal);margin-top:16px;font-weight:600">You're on the list!</p>
 </section>
+
+<footer>
+  <span class="logo" style="font-size:16px">Antí<span style="color:var(--teal)">Jitter</span></span>
+  <p style="margin-top:8px">
+    <a href="https://app.antijitter.com/jitter-test" style="color:var(--dim);margin:0 12px">Jitter Test</a>
+    <a href="https://app.antijitter.com" style="color:var(--dim);margin:0 12px">Dashboard</a>
+    <a href="https://app.antijitter.com/register" style="color:var(--dim);margin:0 12px">Sign up</a>
+  </p>
+  <p style="margin-top:12px;font-size:12px;color:#333">© 2026 AntíJitter. Built for Starlink gamers.</p>
+</footer>
+
+<!-- ── Jitter test JavaScript ─────────────────────────────────────────── -->
+<script>
+const PING_URL  = 'https://app.antijitter.com/api/ping';
+const INTERVAL  = 600;   // ms between pings
+const DURATION  = 60;    // seconds
+const MAX_BARS  = 80;
+const SPIKE_X   = 2.5;   // × baseline = spike
+const BASELINE_N = 8;
+
+let readings = [], spikes = 0, baseline = null;
+let timer = null, startTs = null, phase = 'idle';
+
+async function _ping() {
+  try {
+    const t = performance.now();
+    await fetch(PING_URL, { cache: 'no-store', mode: 'cors' });
+    return Math.round(performance.now() - t);
+  } catch { return null; }
+}
+
+function _jitter(arr) {
+  if (arr.length < 2) return 0;
+  let s = 0;
+  for (let i = 1; i < arr.length; i++) s += Math.abs(arr[i] - arr[i-1]);
+  return Math.round(s / (arr.length - 1));
+}
+
+function _grade(j) {
+  if (j < 5)  return { label:'Excellent jitter',  color:'#30d158', cta:false,
+    detail:'Your Starlink looks great right now. Jitter varies — test again during peak hours or bad weather.' };
+  if (j < 15) return { label:'Moderate jitter',   color:'#00c8d7', cta:true,
+    detail:'Mild jitter. Fine for casual gaming, but Starlink handoffs may still occasionally break competitive matches.' };
+  if (j < 30) return { label:'High jitter',       color:'#ff9f0a', cta:true,
+    detail:'Noticeable lag spikes. Every satellite handoff is affecting your game. AntiJitter will fix this.' };
+  return         { label:'Severe jitter',          color:'#ff453a', cta:true,
+    detail:'Severe jitter. Your Starlink handoffs are breaking every gaming session. AntiJitter eliminates this.' };
+}
+
+function _color(ms) {
+  return ms < 80 ? '#00c8d7' : ms < 150 ? '#ff9f0a' : '#ff453a';
+}
+
+function _updateUI(ms) {
+  const el = document.getElementById('ping-number');
+  el.textContent = ms;
+  el.style.color = _color(ms);
+
+  const arr = readings;
+  const j = _jitter(arr);
+  const avg = arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
+  document.getElementById('s-jitter').textContent  = arr.length > 1 ? j + ' ms' : '—';
+  document.getElementById('s-spikes').textContent  = spikes;
+  document.getElementById('s-samples').textContent = arr.length;
+  document.getElementById('s-avg').textContent     = arr.length ? avg + ' ms' : '—';
+  if (spikes > 0) document.getElementById('s-spikes').style.color = '#ff453a';
+
+  // Baseline line
+  if (baseline) {
+    const maxMs = Math.max(...arr, 100);
+    const pct   = (baseline / maxMs) * (150 - 24);
+    const line  = document.getElementById('baseline-line');
+    line.style.display  = 'block';
+    line.style.bottom   = (12 + pct) + 'px';
+    document.getElementById('baseline-label').textContent = 'baseline ' + Math.round(baseline) + 'ms';
+  }
+
+  _drawBars();
+}
+
+function _drawBars() {
+  const wrap = document.getElementById('chart-wrap');
+  const bars = readings.slice(-MAX_BARS);
+  const maxMs = Math.max(...bars, 100);
+  const height = 150 - 24;
+
+  // Clear existing bars (keep baseline-line and chart-empty)
+  Array.from(wrap.querySelectorAll('.bar')).forEach(b => b.remove());
+
+  bars.forEach((ms, i) => {
+    const isSpike = baseline && ms > baseline * SPIKE_X;
+    const isLatest = i === bars.length - 1;
+    const h = Math.max(4, (ms / maxMs) * height);
+    const div = document.createElement('div');
+    div.className = 'bar' + (isLatest ? ' latest' : '') + (isSpike ? ' spike' : '');
+    div.style.height = h + 'px';
+    div.style.background = isSpike ? '#ff453a' : _color(ms);
+    div.title = ms + 'ms';
+    wrap.appendChild(div);
+  });
+}
+
+function _showResults() {
+  const j   = _jitter(readings);
+  const g   = _grade(j);
+  const elapsed = Math.round((Date.now() - startTs) / 1000);
+
+  const results = document.getElementById('results');
+  results.style.display = 'block';
+  results.style.background = g.color + '0d';
+  results.style.borderColor = g.color + '40';
+
+  document.getElementById('result-grade').style.color = g.color;
+  document.getElementById('result-grade').textContent = j + ' ms — ' + g.label;
+  document.getElementById('result-detail').innerHTML =
+    g.detail +
+    (spikes > 0
+      ? ' We detected <strong style="color:#ff453a">' + spikes + ' satellite handoff' + (spikes!==1?'s':'') + '</strong>.'
+      : '');
+
+  const actions = document.getElementById('result-actions');
+  actions.innerHTML = '';
+  if (g.cta) {
+    actions.innerHTML =
+      '<a href="https://app.antijitter.com/register" class="btn-solid">Fix my jitter — 7 days free →</a>' +
+      '<button onclick="startTest()" class="btn-ghost-sm">Test again</button>';
+  } else {
+    actions.innerHTML = '<button onclick="startTest()" class="btn-ghost-sm">Test again</button>';
+  }
+}
+
+async function startTest() {
+  if (phase === 'running') return;
+
+  // Reset
+  readings = []; spikes = 0; baseline = null;
+  phase = 'warmup';
+  document.getElementById('ping-number').textContent = '—';
+  document.getElementById('ping-number').style.color = '#2a2a2a';
+  document.getElementById('s-jitter').textContent  = '—';
+  document.getElementById('s-spikes').textContent  = '—';
+  document.getElementById('s-avg').textContent     = '—';
+  document.getElementById('s-samples').textContent = '—';
+  document.getElementById('s-spikes').style.color  = 'var(--white)';
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('chart-empty').textContent = 'Warming up…';
+  document.getElementById('chart-empty').style.display = 'flex';
+  document.getElementById('baseline-line').style.display = 'none';
+  document.getElementById('progress-wrap').style.display = 'block';
+  document.getElementById('progress-bar').style.background = 'var(--teal)';
+  document.getElementById('progress-bar').style.width = '0%';
+  document.getElementById('start-btn').style.display = 'none';
+  document.getElementById('test-note').textContent = '';
+  Array.from(document.querySelectorAll('.bar')).forEach(b=>b.remove());
+
+  // Warmup
+  await _ping(); await _ping();
+  document.getElementById('chart-empty').style.display = 'none';
+
+  startTs = Date.now();
+  phase = 'running';
+
+  timer = setInterval(async () => {
+    const ms = await _ping();
+    if (ms === null) return;
+
+    readings.push(ms);
+
+    if (readings.length === BASELINE_N) {
+      baseline = readings.reduce((a,b)=>a+b,0) / readings.length;
+    }
+    if (baseline && ms > baseline * SPIKE_X) spikes++;
+
+    _updateUI(ms);
+
+    const secs = (Date.now() - startTs) / 1000;
+    document.getElementById('progress-bar').style.width = Math.min(secs/DURATION*100, 100) + '%';
+
+    if (secs >= DURATION) {
+      clearInterval(timer);
+      phase = 'done';
+      document.getElementById('progress-bar').style.background = '#30d158';
+      document.getElementById('start-btn').textContent = 'Test Again';
+      document.getElementById('start-btn').style.display = 'inline-block';
+      _showResults();
+    }
+  }, INTERVAL);
+}
+
+function submitWaitlist(e) {
+  e.preventDefault();
+  const email = document.getElementById('waitlist-email').value;
+  // In production this would POST to an API or Formspree
+  console.log('Waitlist:', email);
+  document.getElementById('waitlist-thanks').style.display = 'block';
+  document.getElementById('waitlist-email').value = '';
+}
+</script>
 
 </body>
 </html>

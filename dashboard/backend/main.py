@@ -85,6 +85,12 @@ def _snapshot(t: float) -> dict:
 
 # ── REST endpoints ────────────────────────────────────────────────────────────
 
+@app.get("/api/ping")
+async def ping():
+    """Public latency probe — no auth. Used by the free jitter test tool."""
+    return {"pong": True}
+
+
 @app.get("/api/status")
 async def get_status():
     t = time.time() - START_TIME
