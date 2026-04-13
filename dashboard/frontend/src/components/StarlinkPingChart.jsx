@@ -8,55 +8,78 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
-const SPIKE_MULT = 2.5;
-const BASELINE_WINDOW = 20;
-const DISPLAY_CAP = 200; // ms — anything above this is clamped visually
+// Visual cap — spikes above this are clamped in the chart (real value still in tooltip)
+const DISPLAY_CAP = 200;
 
-/** Build chart-ready data from raw samples array. */
+// Spike = above this multiple of baseline AND above the absolute floor
+// Uses a wide window + low percentile so the baseline reflects "good" pings, not averages
+const SPIKE_MULT       = 4;     // 4× baseline to count as a spike for Game Mode simulation
+const SPIKE_ABS_MIN    = 100;   // must also be >100 ms (ignores tiny noisy bumps)
+const HANDOFF_ABS_MIN  = 300;   // only draw a red line for severe spikes (real handoffs)
+const BASELINE_WINDOW  = 90;    // ~3 min of samples — long enough to stay stable
+const BASELINE_PCT     = 0.20;  // 20th-percentile: baseline = "good" pings, not average
+
+const TIME_WINDOWS = [
+  { label: "2m",  minutes: 2  },
+  { label: "5m",  minutes: 5  },
+  { label: "15m", minutes: 15 },
+  { label: "1h",  minutes: 60 },
+];
+
+/** Build chart-ready data from a (already-windowed) samples array. */
 function buildChartData(samples) {
   if (!samples.length) return { data: [], stats: null };
 
   const data = samples.map((s, i) => {
-    // Rolling median of last N samples as baseline (resistant to spikes)
-    const window = samples
+    const win = samples
       .slice(Math.max(0, i - BASELINE_WINDOW), i)
       .map((x) => x.latency_ms)
       .sort((a, b) => a - b);
-    const baseline =
-      window.length >= 4 ? window[Math.floor(window.length / 2)] : null;
 
-    const isSpike = baseline !== null && s.latency_ms > baseline * SPIKE_MULT;
-    const gameMode = isSpike && baseline ? baseline * 1.05 : s.latency_ms;
-    const starlink = Math.round(s.latency_ms * 10) / 10;
-    const gameModeVal = Math.round(gameMode * 10) / 10;
+    // Use low percentile so the baseline hugs "quiet" pings
+    const baseline =
+      win.length >= 8 ? win[Math.floor(win.length * BASELINE_PCT)] : null;
+
+    const isSpike =
+      baseline !== null &&
+      s.latency_ms > baseline * SPIKE_MULT &&
+      s.latency_ms > SPIKE_ABS_MIN;
+
+    const isHandoff = isSpike && s.latency_ms > HANDOFF_ABS_MIN;
+
+    const gameMode    = isSpike && baseline ? baseline * 1.05 : s.latency_ms;
+    const starlink    = Math.round(s.latency_ms * 10) / 10;
+    const gameModeVal = Math.round(gameMode   * 10) / 10;
 
     return {
-      time: s.ts instanceof Date ? s.ts : new Date(s.ts),
-      // Real values — used by tooltip
+      time:       s.ts instanceof Date ? s.ts : new Date(s.ts),
       starlink,
-      gameMode: gameModeVal,
+      gameMode:   gameModeVal,
       isSpike,
-      // Capped values — used by chart areas so spikes don't crush the scale
-      starlinkViz: Math.min(starlink, DISPLAY_CAP),
+      isHandoff,
+      starlinkViz: Math.min(starlink,    DISPLAY_CAP),
       gameModeViz: Math.min(gameModeVal, DISPLAY_CAP),
     };
   });
 
-  const values = samples.map((s) => s.latency_ms);
-  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  // Stats: compute avg & jitter only from non-spike samples so one big
+  // handoff doesn't blow up the numbers
+  const quietVals = data.filter((d) => !d.isSpike).map((d) => d.starlink);
+  const statsVals = quietVals.length >= 4 ? quietVals : data.map((d) => d.starlink);
+  const avg = statsVals.reduce((a, b) => a + b, 0) / statsVals.length;
   const variance =
-    values.reduce((sum, v) => sum + (v - avg) ** 2, 0) / values.length;
+    statsVals.reduce((sum, v) => sum + (v - avg) ** 2, 0) / statsVals.length;
 
   return {
     data,
     stats: {
-      current: Math.round(values[values.length - 1] * 10) / 10,
-      avg: Math.round(avg * 10) / 10,
-      jitter: Math.round(Math.sqrt(variance) * 10) / 10,
-      handoffs: data.filter((d) => d.isSpike).length,
-      samples: values.length,
+      current:  Math.round(data[data.length - 1].starlink * 10) / 10,
+      avg:      Math.round(avg * 10) / 10,
+      jitter:   Math.round(Math.sqrt(variance) * 10) / 10,
+      handoffs: data.filter((d) => d.isHandoff).length,
+      samples:  data.length,
     },
   };
 }
@@ -86,7 +109,7 @@ const CustomTooltip = ({ active, payload }) => {
         Starlink: <strong>{row.starlink} ms</strong>
         {row.starlink > DISPLAY_CAP && (
           <span style={{ color: "#86868b", fontSize: 10, marginLeft: 4 }}>
-            (chart capped at {DISPLAY_CAP})
+            (capped at {DISPLAY_CAP} in chart)
           </span>
         )}
       </div>
@@ -98,17 +121,30 @@ const CustomTooltip = ({ active, payload }) => {
 };
 
 export default function StarlinkPingChart({ samples }) {
-  const { data, stats } = useMemo(() => buildChartData(samples), [samples]);
+  const [windowMin, setWindowMin] = useState(5);
+
+  // Slice to the selected time window
+  const visible = useMemo(() => {
+    if (!samples.length) return samples;
+    const cutoff = new Date(Date.now() - windowMin * 60 * 1000);
+    const sliced = samples.filter((s) => {
+      const ts = s.ts instanceof Date ? s.ts : new Date(s.ts);
+      return ts >= cutoff;
+    });
+    return sliced.length >= 2 ? sliced : samples.slice(-2);
+  }, [samples, windowMin]);
+
+  const { data, stats } = useMemo(() => buildChartData(visible), [visible]);
 
   const pingColor =
-    !stats ? "#86868b"
+    !stats           ? "#86868b"
     : stats.current < 50  ? "var(--green)"
     : stats.current < 100 ? "var(--teal)"
     : stats.current < 200 ? "var(--orange)"
     : "var(--red)";
 
-  // X-axis tick positions: show one label every ~5 minutes
-  const tickInterval = Math.max(1, Math.floor((5 * 60 * 1000) / 2000));
+  // ~6 evenly-spaced X labels across the window
+  const tickInterval = Math.max(1, Math.floor(data.length / 6));
 
   return (
     <div style={{
@@ -124,27 +160,55 @@ export default function StarlinkPingChart({ samples }) {
             Starlink Latency
           </h3>
           <p style={{ fontSize: 12, color: "var(--dim)", marginTop: 4, marginBottom: 0 }}>
-            Measured from your browser every 2 s · up to 1 h shown
+            Measured from your browser every 2 s
           </p>
         </div>
-        {stats && (
-          <div style={{ textAlign: "right", lineHeight: 1 }}>
-            <span style={{ fontSize: 36, fontWeight: 800, color: pingColor }}>
-              {stats.current}
-            </span>
-            <span style={{ fontSize: 13, color: "var(--dim)", marginLeft: 4 }}>ms</span>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {/* Time window picker */}
+          <div style={{ display: "flex", gap: 4 }}>
+            {TIME_WINDOWS.map(({ label, minutes }) => (
+              <button
+                key={label}
+                onClick={() => setWindowMin(minutes)}
+                style={{
+                  padding: "3px 10px",
+                  borderRadius: 99,
+                  border: "1px solid",
+                  borderColor: windowMin === minutes ? "var(--teal)" : "var(--border)",
+                  background: windowMin === minutes ? "rgba(0,200,215,0.12)" : "transparent",
+                  color: windowMin === minutes ? "var(--teal)" : "var(--dim)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        )}
+
+          {/* Current ping */}
+          {stats && (
+            <div style={{ textAlign: "right", lineHeight: 1 }}>
+              <span style={{ fontSize: 36, fontWeight: 800, color: pingColor }}>
+                {stats.current}
+              </span>
+              <span style={{ fontSize: 13, color: "var(--dim)", marginLeft: 4 }}>ms</span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Stats pills */}
+      {/* Stats row */}
       {stats && (
         <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
           <StatPill label="Avg" value={`${stats.avg} ms`} />
           <StatPill
             label="Jitter"
             value={`±${stats.jitter} ms`}
-            color={stats.jitter > 20 ? "var(--orange)" : "var(--white)"}
+            color={stats.jitter > 15 ? "var(--orange)" : "var(--white)"}
           />
           <StatPill
             label="Handoffs"
@@ -184,11 +248,11 @@ export default function StarlinkPingChart({ samples }) {
             <defs>
               <linearGradient id="sl-grad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%"  stopColor="#ff9f0a" stopOpacity={0.35} />
-                <stop offset="95%" stopColor="#ff9f0a" stopOpacity={0} />
+                <stop offset="95%" stopColor="#ff9f0a" stopOpacity={0}    />
               </linearGradient>
               <linearGradient id="gm-grad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%"  stopColor="#00c8d7" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#00c8d7" stopOpacity={0} />
+                <stop offset="95%" stopColor="#00c8d7" stopOpacity={0}   />
               </linearGradient>
             </defs>
 
@@ -207,23 +271,23 @@ export default function StarlinkPingChart({ samples }) {
             />
             <Tooltip content={<CustomTooltip />} />
 
-            {/* Unplayable threshold line */}
+            {/* Unplayable threshold */}
             <ReferenceLine
               y={DISPLAY_CAP}
-              stroke="rgba(255,69,58,0.35)"
+              stroke="rgba(255,69,58,0.3)"
               strokeDasharray="6 4"
               label={{
                 value: "Unplayable",
                 position: "insideTopRight",
-                fill: "rgba(255,69,58,0.55)",
+                fill: "rgba(255,69,58,0.5)",
                 fontSize: 10,
                 fontWeight: 600,
               }}
             />
 
-            {/* Vertical markers at each detected handoff */}
+            {/* Red verticals only for genuine handoff-level spikes (>300 ms) */}
             {data
-              .filter((d) => d.isSpike)
+              .filter((d) => d.isHandoff)
               .map((d, i) => (
                 <ReferenceLine
                   key={i}
