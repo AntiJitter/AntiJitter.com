@@ -75,17 +75,36 @@ export default function Subscription() {
           textAlign: "center",
         }}
       >
-        <h3 style={{ fontSize: 13, fontWeight: 700, color: "var(--teal)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>
-          One plan. Everything included.
-        </h3>
+        {/* Free badge */}
+        <div style={{
+          display: "inline-block",
+          background: "rgba(0,200,215,0.15)",
+          border: "1px solid rgba(0,200,215,0.4)",
+          borderRadius: 99,
+          padding: "4px 14px",
+          fontSize: 12,
+          fontWeight: 700,
+          color: "var(--teal)",
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          marginBottom: 16,
+        }}>
+          No credit card required
+        </div>
 
-        <div style={{ marginBottom: 24 }}>
-          <span style={{ fontSize: 52, fontWeight: 800, color: "var(--teal)" }}>{PLAN.price}</span>
-          <span style={{ fontSize: 16, color: "var(--dim)" }}>{PLAN.period}</span>
+        {/* Hero: trial */}
+        <div style={{ marginBottom: 6 }}>
+          <span style={{ fontSize: 64, fontWeight: 800, lineHeight: 1, color: "#f5f5f7" }}>7 days</span>
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: "var(--teal)", marginBottom: 4 }}>
+          completely free
+        </div>
+        <div style={{ fontSize: 13, color: "var(--dim)", marginBottom: 28 }}>
+          then $5/month — cancel anytime
         </div>
 
         <ul style={{ listStyle: "none", padding: 0, margin: "0 0 28px", textAlign: "left" }}>
-          {PLAN.features.map((f) => (
+          {["Full Game Mode — all connections bonded", "Unlimited devices in your home", "Real-time dashboard", "WireGuard config — 1 click setup"].map((f) => (
             <li key={f} style={{ fontSize: 14, color: "var(--dim)", marginBottom: 10, display: "flex", gap: 10 }}>
               <span style={{ color: "var(--teal)", flexShrink: 0 }}>✓</span>
               {f}
@@ -109,15 +128,15 @@ export default function Subscription() {
             fontFamily: "inherit",
           }}
         >
-          {loading ? "Redirecting to Stripe…" : "Start 7-day free trial"}
+          {loading ? "Redirecting to Stripe…" : "Start free trial →"}
         </button>
 
         {error && (
           <p style={{ color: "var(--red)", fontSize: 13, marginTop: 12 }}>{error}</p>
         )}
 
-        <p style={{ fontSize: 12, color: "var(--dim)", marginTop: 14 }}>
-          No credit card required during trial.
+        <p style={{ fontSize: 12, color: "#555", marginTop: 14 }}>
+          You won't be charged until your trial ends.
         </p>
       </div>
     </PageWrap>
@@ -189,10 +208,10 @@ function PageWrap({ children }) {
     <div style={{ minHeight: "100vh", background: "var(--black)", padding: "60px 20px" }}>
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
         <h2 style={{ fontSize: 26, fontWeight: 800, textAlign: "center", marginBottom: 8 }}>
-          Dead calm gaming.
+          Try AntíJitter free for 7 days
         </h2>
         <p style={{ textAlign: "center", color: "var(--dim)", fontSize: 14, marginBottom: 36 }}>
-          You're the admin. Everyone in your home gets Game Mode.
+          No payment needed to start. Cancel before the trial ends and you owe nothing.
         </p>
         {children}
       </div>
