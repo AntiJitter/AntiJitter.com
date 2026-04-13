@@ -37,7 +37,7 @@ export default function Subscription() {
       const res = await apiFetch(`/api/subscription/create?plan=solo`, { method: "POST" });
       if (!res.ok) throw new Error((await res.json()).detail);
       const { url } = await res.json();
-      window.location.href = url;
+      window.open(url, "_blank", "noopener");
     } catch (err) {
       setError(err.message);
       setLoading(false);
