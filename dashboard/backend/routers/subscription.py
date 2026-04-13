@@ -39,10 +39,10 @@ async def create_checkout(
         line_items=[{"price": price_id, "quantity": 1}],
         subscription_data={"trial_period_days": 7},
         success_url=(
-            "http://localhost:3000/dashboard/subscription/success"
+            "https://app.antijitter.com/dashboard/subscription/success"
             "?session_id={CHECKOUT_SESSION_ID}"
         ),
-        cancel_url="http://localhost:3000/dashboard/subscription",
+        cancel_url="https://app.antijitter.com/dashboard/subscription",
         customer_email=user.email,
         metadata={"user_id": str(user.id), "plan": plan},
     )
