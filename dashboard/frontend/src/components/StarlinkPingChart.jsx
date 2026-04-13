@@ -12,6 +12,7 @@ import { useMemo } from "react";
 
 const SPIKE_MULT = 2.5;
 const BASELINE_WINDOW = 20;
+const DISPLAY_CAP = 200; // ms — anything above this is clamped visually
 
 /** Build chart-ready data from raw samples array. */
 function buildChartData(samples) {
@@ -28,12 +29,18 @@ function buildChartData(samples) {
 
     const isSpike = baseline !== null && s.latency_ms > baseline * SPIKE_MULT;
     const gameMode = isSpike && baseline ? baseline * 1.05 : s.latency_ms;
+    const starlink = Math.round(s.latency_ms * 10) / 10;
+    const gameModeVal = Math.round(gameMode * 10) / 10;
 
     return {
       time: s.ts instanceof Date ? s.ts : new Date(s.ts),
-      starlink: Math.round(s.latency_ms * 10) / 10,
-      gameMode: Math.round(gameMode * 10) / 10,
+      // Real values — used by tooltip
+      starlink,
+      gameMode: gameModeVal,
       isSpike,
+      // Capped values — used by chart areas so spikes don't crush the scale
+      starlinkViz: Math.min(starlink, DISPLAY_CAP),
+      gameModeViz: Math.min(gameModeVal, DISPLAY_CAP),
     };
   });
 
@@ -62,7 +69,8 @@ function fmtTime(ts) {
 
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
-  const time = payload[0]?.payload?.time;
+  const row = payload[0]?.payload;
+  if (!row) return null;
   return (
     <div style={{
       background: "#1c1c1e",
@@ -71,16 +79,20 @@ const CustomTooltip = ({ active, payload }) => {
       padding: "10px 14px",
       fontSize: 12,
     }}>
-      {time && (
-        <div style={{ color: "#86868b", marginBottom: 4 }}>
-          {fmtTime(time)}
-        </div>
+      {row.time && (
+        <div style={{ color: "#86868b", marginBottom: 4 }}>{fmtTime(row.time)}</div>
       )}
-      {payload.map((p) => (
-        <div key={p.dataKey} style={{ color: p.color, marginTop: 2 }}>
-          {p.name}: <strong>{p.value} ms</strong>
-        </div>
-      ))}
+      <div style={{ color: "#ff9f0a", marginTop: 2 }}>
+        Starlink: <strong>{row.starlink} ms</strong>
+        {row.starlink > DISPLAY_CAP && (
+          <span style={{ color: "#86868b", fontSize: 10, marginLeft: 4 }}>
+            (chart capped at {DISPLAY_CAP})
+          </span>
+        )}
+      </div>
+      <div style={{ color: "#00c8d7", marginTop: 2 }}>
+        With Game Mode: <strong>{row.gameMode} ms</strong>
+      </div>
     </div>
   );
 };
@@ -190,9 +202,24 @@ export default function StarlinkPingChart({ samples }) {
             <YAxis
               tick={{ fill: "#86868b", fontSize: 11 }}
               tickFormatter={(v) => `${v}ms`}
-              domain={[0, "auto"]}
+              domain={[0, DISPLAY_CAP + 10]}
+              allowDataOverflow
             />
             <Tooltip content={<CustomTooltip />} />
+
+            {/* Unplayable threshold line */}
+            <ReferenceLine
+              y={DISPLAY_CAP}
+              stroke="rgba(255,69,58,0.35)"
+              strokeDasharray="6 4"
+              label={{
+                value: "Unplayable",
+                position: "insideTopRight",
+                fill: "rgba(255,69,58,0.55)",
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+            />
 
             {/* Vertical markers at each detected handoff */}
             {data
@@ -209,7 +236,7 @@ export default function StarlinkPingChart({ samples }) {
 
             <Area
               type="monotone"
-              dataKey="starlink"
+              dataKey="starlinkViz"
               name="Starlink"
               stroke="#ff9f0a"
               strokeWidth={2}
@@ -219,7 +246,7 @@ export default function StarlinkPingChart({ samples }) {
             />
             <Area
               type="monotone"
-              dataKey="gameMode"
+              dataKey="gameModeViz"
               name="With Game Mode"
               stroke="#00c8d7"
               strokeWidth={1.5}
