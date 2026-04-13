@@ -14,7 +14,7 @@ from .auth import decode_token
 from .config import settings  # noqa: F401 — ensures .env is loaded early
 from .database import AsyncSessionLocal, create_tables
 from .models import Session as SessionModel
-from .routers import auth, connections, sessions, starlink, subscription, wireguard
+from .routers import auth, connections, ping_log, sessions, starlink, subscription, wireguard
 
 app = FastAPI(title="AntíJitter API", version="2.0.0")
 
@@ -31,6 +31,7 @@ app.include_router(subscription.router)
 app.include_router(sessions.router)
 app.include_router(connections.router)
 app.include_router(starlink.router)
+app.include_router(ping_log.router)
 
 
 @app.on_event("startup")

@@ -6,15 +6,18 @@ import FailoverLog from "../components/FailoverLog";
 import LatencyChart from "../components/LatencyChart";
 import OutageTimeline from "../components/OutageTimeline";
 import SessionHistory from "../components/SessionHistory";
+import StarlinkPingChart from "../components/StarlinkPingChart";
 import Connections from "./Connections";
 import { useAuth } from "../contexts/AuthContext";
 import { useMetrics } from "../hooks/useMetrics";
+import { usePingLogger } from "../hooks/usePingLogger";
 
 const TABS = ["Live", "Connections", "History"];
 
 export default function Dashboard() {
   const { user, logout, token } = useAuth();
   const { history, status, events, connected, failoverTs } = useMetrics(token);
+  const { samples: pingSamples } = usePingLogger();
   const navigate = useNavigate();
   const conns = status?.connections;
   const [tab, setTab] = useState("Live");
@@ -110,6 +113,11 @@ export default function Dashboard() {
       <main style={{ padding: "22px 24px", maxWidth: 1280, margin: "0 auto" }}>
         {tab === "Live" && (
           <>
+            {/* Row 0: Starlink ping history chart */}
+            <div style={{ marginBottom: 18 }}>
+              <StarlinkPingChart samples={pingSamples} />
+            </div>
+
             {/* Row 1: Connection cards + Bonding panel */}
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
               {conns ? (

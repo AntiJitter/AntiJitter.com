@@ -21,6 +21,7 @@ class User(Base):
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="user")
     sessions: Mapped[list["Session"]] = relationship(back_populates="user")
     outage_events: Mapped[list["OutageEvent"]] = relationship(back_populates="user")
+    ping_logs: Mapped[list["PingLog"]] = relationship(back_populates="user")
 
 
 class Subscription(Base):
@@ -81,3 +82,15 @@ class OutageEvent(Base):
     latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="outage_events")
+
+
+class PingLog(Base):
+    """Browser-measured round-trip latency to the API, one row per ping."""
+    __tablename__ = "ping_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
+
+    user: Mapped["User"] = relationship(back_populates="ping_logs")

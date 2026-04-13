@@ -26,7 +26,7 @@ export default function Register() {
     setLoading(true);
     try {
       await register(email, password);
-      navigate("/dashboard/subscription");
+      navigate("/dashboard");
     } catch (err) {
       setError(err.message);
     } finally {
