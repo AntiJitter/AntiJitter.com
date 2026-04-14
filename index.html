@@ -316,6 +316,71 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
 
 <hr class="divider">
 
+<!-- ── Solution ───────────────────────────────────────────────────────── -->
+<section class="wrap">
+  <h2>Every packet.<br>Every path.</h2>
+  <p class="sub">
+    AntíJitter sends every packet through Starlink + 4G + 5G — all at once. The fastest packet wins.
+    <br><br>
+    <strong>No switching. No spikes. No disconnects.</strong>
+  </p>
+
+  <!-- Before / After comparison -->
+  <div class="compare-wrap">
+    <div class="compare-box" style="border-color:rgba(255,69,58,0.3)">
+      <div style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.08em">Without AntiJitter</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:4px">Starlink alone — handoff spikes</div>
+      <svg viewBox="0 0 220 60" preserveAspectRatio="none">
+        <polyline points="0,45 18,43 36,44 50,42 56,8 66,43 84,44 100,43 116,7 126,44 144,43 160,44 172,6 182,43 200,44 220,43"
+          fill="none" stroke="#ff453a" stroke-width="2" stroke-linejoin="round"/>
+        <line x1="56" y1="8" x2="56" y2="44" stroke="rgba(255,69,58,0.2)" stroke-width="1" stroke-dasharray="2,2"/>
+        <line x1="116" y1="7" x2="116" y2="44" stroke="rgba(255,69,58,0.2)" stroke-width="1" stroke-dasharray="2,2"/>
+        <line x1="172" y1="6" x2="172" y2="44" stroke="rgba(255,69,58,0.2)" stroke-width="1" stroke-dasharray="2,2"/>
+      </svg>
+    </div>
+    <div class="compare-box" style="border-color:rgba(48,209,88,0.3)">
+      <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:0.08em">With AntiJitter</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:4px">Bonded paths — zero spikes</div>
+      <svg viewBox="0 0 220 60" preserveAspectRatio="none">
+        <polyline points="0,44 20,43 40,44 60,43 80,44 100,43 120,44 140,43 160,44 180,43 200,44 220,43"
+          fill="none" stroke="#30d158" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Bonding architecture diagram -->
+  <div class="bond-diagram">
+    <div class="bond-node">
+      <div class="bond-node-icon">🛸</div>
+      <div class="bond-node-name">Starlink</div>
+      <div class="bond-node-sub">primary path</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
+      <div class="bond-arrow">↘</div>
+      <div class="bond-arrow">↗</div>
+    </div>
+    <div class="bond-node">
+      <div class="bond-node-icon">📡</div>
+      <div class="bond-node-name">4G / 5G</div>
+      <div class="bond-node-sub">backup path</div>
+    </div>
+    <div class="bond-arrow" style="color:var(--teal);font-weight:700">→</div>
+    <div class="bond-center">
+      <div class="bond-center-name">AntíJitter</div>
+      <div class="bond-center-sub">bonds both paths</div>
+      <div class="bond-center-sub" style="color:var(--teal);margin-top:4px">fastest packet wins</div>
+    </div>
+    <div class="bond-arrow" style="color:var(--teal);font-weight:700">→</div>
+    <div class="bond-node">
+      <div class="bond-node-icon">🎮</div>
+      <div class="bond-node-name" style="color:var(--green)">Your game</div>
+      <div class="bond-node-sub">zero spikes</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
 <!-- ── Games database ─────────────────────────────────────────────────── -->
 <div class="games-section">
   <div class="games-eyebrow">Smart Routing · 4G Data Protected</div>
@@ -414,73 +479,6 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
       <span>← 60s ago</span>
       <span id="demo-spike-label" style="color:var(--red);font-weight:700;font-size:11px;opacity:0;transition:opacity 0.3s"></span>
       <span>now →</span>
-    </div>
-  </div>
-</section>
-
-<hr class="divider">
-
-<!-- ── Solution ───────────────────────────────────────────────────────── -->
-<section class="wrap">
-  <h2>Every packet.<br>Every path.</h2>
-  <p class="sub">
-    AntíJitter sends every packet through all your connections simultaneously.
-    Starlink + 4G + 5G — all at once. The fastest packet wins.
-    <br><br>
-    <strong>No switching. No spikes. No disconnects.</strong>
-  </p>
-
-  <!-- Before / After comparison -->
-  <div class="compare-wrap">
-    <div class="compare-box" style="border-color:rgba(255,69,58,0.3)">
-      <div style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.08em">Without AntiJitter</div>
-      <div style="font-size:12px;color:var(--dim);margin-top:4px">Starlink alone — handoff spikes</div>
-      <svg viewBox="0 0 220 60" preserveAspectRatio="none">
-        <polyline points="0,45 18,43 36,44 50,42 56,8 66,43 84,44 100,43 116,7 126,44 144,43 160,44 172,6 182,43 200,44 220,43"
-          fill="none" stroke="#ff453a" stroke-width="2" stroke-linejoin="round"/>
-        <!-- spike markers -->
-        <line x1="56" y1="8" x2="56" y2="44" stroke="rgba(255,69,58,0.2)" stroke-width="1" stroke-dasharray="2,2"/>
-        <line x1="116" y1="7" x2="116" y2="44" stroke="rgba(255,69,58,0.2)" stroke-width="1" stroke-dasharray="2,2"/>
-        <line x1="172" y1="6" x2="172" y2="44" stroke="rgba(255,69,58,0.2)" stroke-width="1" stroke-dasharray="2,2"/>
-      </svg>
-    </div>
-    <div class="compare-box" style="border-color:rgba(48,209,88,0.3)">
-      <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:0.08em">With AntiJitter</div>
-      <div style="font-size:12px;color:var(--dim);margin-top:4px">Bonded paths — zero spikes</div>
-      <svg viewBox="0 0 220 60" preserveAspectRatio="none">
-        <polyline points="0,44 20,43 40,44 60,43 80,44 100,43 120,44 140,43 160,44 180,43 200,44 220,43"
-          fill="none" stroke="#30d158" stroke-width="2" stroke-linejoin="round"/>
-      </svg>
-    </div>
-  </div>
-
-  <!-- Bonding architecture diagram -->
-  <div class="bond-diagram">
-    <div class="bond-node">
-      <div class="bond-node-icon">🛸</div>
-      <div class="bond-node-name">Starlink</div>
-      <div class="bond-node-sub">primary path</div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
-      <div class="bond-arrow">↘</div>
-      <div class="bond-arrow">↗</div>
-    </div>
-    <div class="bond-node">
-      <div class="bond-node-icon">📡</div>
-      <div class="bond-node-name">4G / 5G</div>
-      <div class="bond-node-sub">backup path</div>
-    </div>
-    <div class="bond-arrow" style="color:var(--teal);font-weight:700">→</div>
-    <div class="bond-center">
-      <div class="bond-center-name">AntíJitter</div>
-      <div class="bond-center-sub">bonds both paths</div>
-      <div class="bond-center-sub" style="color:var(--teal);margin-top:4px">fastest packet wins</div>
-    </div>
-    <div class="bond-arrow" style="color:var(--teal);font-weight:700">→</div>
-    <div class="bond-node">
-      <div class="bond-node-icon">🎮</div>
-      <div class="bond-node-name" style="color:var(--green)">Your game</div>
-      <div class="bond-node-sub">zero spikes</div>
     </div>
   </div>
 </section>
