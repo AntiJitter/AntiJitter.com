@@ -77,70 +77,86 @@ h1{font-size:clamp(40px,8vw,80px);letter-spacing:-3px;line-height:1.05;margin-bo
 h2{font-size:clamp(28px,5vw,52px);letter-spacing:-2px;margin-bottom:16px}
 .sub{font-size:17px;color:var(--dim);line-height:1.6;max-width:560px;margin:0 auto}
 
+/* ── Hero split layout ────────────────────────────────────────────────── */
+.hero{
+  display:flex;align-items:center;gap:48px;
+  max-width:1200px;margin:0 auto;padding:48px 40px;
+  min-height:calc(100vh - 57px);
+}
+.hero-copy{flex:1;min-width:280px}
+.hero-copy .eyebrow{font-size:12px;color:var(--teal);font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:14px}
+.hero-copy h1{font-size:clamp(36px,5vw,64px);letter-spacing:-2.5px;line-height:1.05;margin-bottom:16px}
+.hero-copy .sub{font-size:16px;color:var(--dim);line-height:1.65;max-width:420px;margin-bottom:28px}
+.hero-ctas{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.hero-proof{margin-top:20px;font-size:12px;color:#444}
+
 /* ── Jitter test tool ─────────────────────────────────────────────────── */
 #tool{
+  flex:1;min-width:300px;max-width:520px;
   background:var(--surface);border:1px solid var(--border);
-  border-radius:20px;padding:36px 32px;margin:40px auto 0;
-  max-width:720px;
+  border-radius:16px;padding:20px;
 }
+.tool-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.tool-title{font-size:13px;font-weight:700;color:var(--white)}
+.tool-subtitle{font-size:11px;color:var(--dim);margin-top:2px}
 #ping-number{
-  font-size:clamp(80px,16vw,140px);font-weight:800;
-  letter-spacing:-6px;line-height:1;
+  font-size:clamp(48px,8vw,72px);font-weight:800;
+  letter-spacing:-3px;line-height:1;
   color:#2a2a2a;
   transition:color 0.3s;
   font-variant-numeric:tabular-nums;
 }
-#ping-unit{font-size:18px;color:var(--dim);margin-top:6px;margin-bottom:24px}
+#ping-unit{font-size:11px;color:var(--dim);margin-top:2px}
 
-.stats-row{display:flex;justify-content:center;gap:36px;flex-wrap:wrap;margin-bottom:24px}
+.stats-row{display:flex;justify-content:space-between;margin-bottom:12px;
+  background:#0d0d0d;border-radius:10px;padding:10px 16px}
 .stat-box{text-align:center}
-.stat-val{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--white)}
-.stat-lbl{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:0.06em;margin-top:3px}
+.stat-val{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--white)}
+.stat-lbl{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px}
 
 #chart-wrap{
-  background:#0d0d0d;border-radius:10px;height:150px;
+  background:#0d0d0d;border-radius:10px;height:110px;
   display:flex;align-items:flex-end;gap:2px;overflow:hidden;
-  padding:12px 12px 0;position:relative;margin-bottom:20px;
+  padding:10px 10px 0;position:relative;margin-bottom:12px;
 }
 .chart-empty{
   position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  color:#2a2a2a;font-size:14px;
+  color:#2a2a2a;font-size:13px;
 }
-.bar{
-  flex:1 0 0;max-width:12px;border-radius:2px 2px 0 0;
-  transition:height 0.2s;opacity:0.75;
-}
+.bar{flex:1 0 0;max-width:10px;border-radius:2px 2px 0 0;transition:height 0.2s;opacity:0.75}
 .bar.latest{opacity:1}
-.bar.spike{box-shadow:0 0 8px var(--red)}
+.bar.spike{box-shadow:0 0 6px var(--red)}
 
 #baseline-line{
-  position:absolute;left:12px;right:12px;
-  border-top:1px dashed rgba(0,200,215,0.35);
-  pointer-events:none;
+  position:absolute;left:10px;right:10px;
+  border-top:1px dashed rgba(0,200,215,0.35);pointer-events:none;
 }
-#baseline-label{
-  font-size:9px;color:rgba(0,200,215,0.45);padding-left:4px;
-}
+#baseline-label{font-size:9px;color:rgba(0,200,215,0.45);padding-left:4px}
 
-#progress-wrap{height:4px;background:#1a1a1a;border-radius:99px;overflow:hidden;margin-bottom:24px}
+.btn-row{display:flex;align-items:center;gap:12px}
+#progress-wrap{flex:1;height:4px;background:#1a1a1a;border-radius:99px;overflow:hidden}
 #progress-bar{height:100%;background:var(--teal);border-radius:99px;width:0%;transition:width 0.5s}
-
 #start-btn{
-  padding:16px 56px;border-radius:99px;background:var(--teal);color:#000;
-  font-weight:700;font-size:16px;border:none;cursor:pointer;font-family:inherit;
+  padding:10px 28px;border-radius:99px;background:var(--teal);color:#000;
+  font-weight:700;font-size:14px;border:none;cursor:pointer;font-family:inherit;
+  white-space:nowrap;
 }
 #start-btn:hover{opacity:0.9}
-#test-note{font-size:13px;color:#444;margin-top:12px}
+#test-note{font-size:12px;color:#444;margin-top:8px;text-align:center}
 
 /* Results */
 #results{
-  display:none;border-radius:14px;padding:28px;margin-top:24px;
-  border:1px solid transparent;
-  text-align:left;
+  display:none;border-radius:12px;padding:16px;margin-top:12px;
+  border:1px solid transparent;text-align:left;
 }
-#result-grade{font-size:30px;font-weight:800;margin-bottom:6px}
-#result-detail{font-size:14px;color:var(--dim);line-height:1.65;margin-bottom:20px}
-.result-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;padding-top:20px;border-top:1px solid #1e1e1e}
+#result-grade{font-size:22px;font-weight:800;margin-bottom:4px}
+#result-detail{font-size:13px;color:var(--dim);line-height:1.6;margin-bottom:12px}
+.result-actions{display:flex;gap:10px;flex-wrap:wrap;padding-top:12px;border-top:1px solid #1e1e1e}
+
+@media(max-width:768px){
+  .hero{flex-direction:column;padding:32px 20px;min-height:auto}
+  #tool{max-width:100%}
+}
 
 /* ── Content sections ─────────────────────────────────────────────────── */
 .divider{border:none;border-top:1px solid var(--border);margin:0}
@@ -167,27 +183,43 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
 <nav>
   <span class="logo">Antí<span style="color:var(--teal)">Jitter</span></span>
   <div class="nav-links">
-    <a href="https://app.antijitter.com/jitter-test" class="btn-outline">Full Jitter Test</a>
-    <a href="https://app.antijitter.com/login" class="btn-outline" style="color:var(--dim);border-color:#333">Log in</a>
+    <a href="https://app.antijitter.com/jitter-test" style="color:var(--dim);font-size:14px;font-weight:600">Jitter Test</a>
+    <a href="https://app.antijitter.com/games" style="color:var(--dim);font-size:14px;font-weight:600">Games</a>
+    <a href="https://app.antijitter.com/login" style="color:var(--dim);font-size:14px;font-weight:600">Log in</a>
     <a href="https://app.antijitter.com/register" class="btn-solid" style="padding:10px 20px;font-size:14px">Start free trial</a>
   </div>
 </nav>
 
 <!-- ── Hero + Live Tool ────────────────────────────────────────────────── -->
-<section class="wrap" style="padding-top:60px">
-  <p style="font-size:13px;color:var(--teal);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px">
-    Free Starlink Jitter Test
-  </p>
-  <h1>Is your Starlink<br>jittering?</h1>
-  <p class="sub">
-    Find out in 60 seconds — free, no account needed.<br>
-    Satellite handoff spikes appear in real time.
-  </p>
+<div class="hero">
 
-  <!-- Live Tool -->
+  <!-- Left: copy -->
+  <div class="hero-copy">
+    <div class="eyebrow">Free Starlink Jitter Test</div>
+    <h1>Is your Starlink<br>jittering?</h1>
+    <p class="sub">
+      Find out in 60 seconds — free, no account needed.
+      Satellite handoff spikes appear in real time.
+    </p>
+    <div class="hero-ctas">
+      <a href="https://app.antijitter.com/register" class="btn-solid">Fix my jitter — 7 days free</a>
+      <a href="https://app.antijitter.com/games" class="btn-ghost-sm">View protected games →</a>
+    </div>
+    <p class="hero-proof">$5/month after trial · Cancel anytime · Works with any game</p>
+  </div>
+
+  <!-- Right: compact tool -->
   <div id="tool">
-    <div id="ping-number">—</div>
-    <div id="ping-unit">milliseconds</div>
+    <div class="tool-top">
+      <div>
+        <div class="tool-title">Live Latency Test</div>
+        <div class="tool-subtitle">Measuring from your browser</div>
+      </div>
+      <div style="text-align:right">
+        <div id="ping-number">—</div>
+        <div id="ping-unit">ms</div>
+      </div>
+    </div>
 
     <div class="stats-row">
       <div class="stat-box"><div class="stat-val" id="s-jitter">—</div><div class="stat-lbl">Jitter</div></div>
@@ -198,19 +230,14 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
 
     <div id="chart-wrap">
       <div class="chart-empty" id="chart-empty">Press Start Test to begin</div>
-      <div id="baseline-line" style="display:none">
-        <span id="baseline-label"></span>
-      </div>
+      <div id="baseline-line" style="display:none"><span id="baseline-label"></span></div>
     </div>
 
-    <div id="progress-wrap" style="display:none">
-      <div id="progress-bar"></div>
-    </div>
-
-    <div style="text-align:center">
+    <div class="btn-row">
+      <div id="progress-wrap" style="display:none;flex:1"><div id="progress-bar"></div></div>
       <button id="start-btn" onclick="startTest()">Start Test</button>
-      <div id="test-note">60-second test · No account required</div>
     </div>
+    <div id="test-note">60-second test · No account required</div>
 
     <div id="results">
       <div id="result-grade"></div>
@@ -218,7 +245,8 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
       <div class="result-actions" id="result-actions"></div>
     </div>
   </div>
-</section>
+
+</div>
 
 <hr class="divider">
 
@@ -332,7 +360,9 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
   <span class="logo" style="font-size:16px">Antí<span style="color:var(--teal)">Jitter</span></span>
   <p style="margin-top:8px">
     <a href="https://app.antijitter.com/jitter-test" style="color:var(--dim);margin:0 12px">Jitter Test</a>
+    <a href="https://app.antijitter.com/games" style="color:var(--dim);margin:0 12px">Games</a>
     <a href="https://app.antijitter.com" style="color:var(--dim);margin:0 12px">Dashboard</a>
+    <a href="https://app.antijitter.com/login" style="color:var(--dim);margin:0 12px">Log in</a>
     <a href="https://app.antijitter.com/register" style="color:var(--dim);margin:0 12px">Sign up</a>
   </p>
   <p style="margin-top:12px;font-size:12px;color:#333">© 2026 AntíJitter. Built for Starlink gamers.</p>
@@ -397,7 +427,7 @@ function _updateUI(ms) {
   // Baseline line
   if (baseline) {
     const maxMs = Math.max(...arr, 100);
-    const pct   = (baseline / maxMs) * (150 - 24);
+    const pct   = (baseline / maxMs) * (110 - 20);
     const line  = document.getElementById('baseline-line');
     line.style.display  = 'block';
     line.style.bottom   = (12 + pct) + 'px';
@@ -411,7 +441,7 @@ function _drawBars() {
   const wrap = document.getElementById('chart-wrap');
   const bars = readings.slice(-MAX_BARS);
   const maxMs = Math.max(...bars, 100);
-  const height = 150 - 24;
+  const height = 110 - 20;
 
   // Clear existing bars (keep baseline-line and chart-empty)
   Array.from(wrap.querySelectorAll('.bar')).forEach(b => b.remove());

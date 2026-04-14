@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import PublicNav from "../components/PublicNav";
 
 const PLATFORMS = ["PC", "PlayStation", "Xbox", "Mobile", "Nintendo Switch", "Other"];
 
@@ -73,17 +74,7 @@ export default function GamesDatabase() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--black)", color: "var(--white)", fontFamily: "'Mona Sans', sans-serif" }}>
 
-      {/* Nav */}
-      <header style={{ padding: "16px 32px", borderBottom: "1px solid var(--border)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <a href="/" style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.5px", textDecoration: "none", color: "var(--white)" }}>
-          Antí<span style={{ color: "var(--teal)" }}>Jitter</span>
-        </a>
-        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-          <a href="/jitter-test" style={{ fontSize: 13, color: "var(--dim)", textDecoration: "none" }}>Free Test</a>
-          <a href="/login" style={{ fontSize: 13, color: "var(--dim)", textDecoration: "none" }}>Login</a>
-          <a href="/register" style={{ fontSize: 13, padding: "6px 16px", background: "var(--teal)", color: "#000", borderRadius: 99, fontWeight: 700, textDecoration: "none" }}>Get Started</a>
-        </div>
-      </header>
+      <PublicNav />
 
       <main style={{ maxWidth: 1100, margin: "0 auto", padding: "48px 24px" }}>
 
