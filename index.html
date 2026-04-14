@@ -174,6 +174,30 @@ h2{font-size:clamp(28px,5vw,52px);letter-spacing:-2px;margin-bottom:16px}
 .price-features li{font-size:14px;color:var(--dim);padding:7px 0;border-bottom:1px solid var(--border)}
 .price-features li::before{content:"✓ ";color:var(--teal)}
 
+/* ── Visuals ──────────────────────────────────────────────────────────── */
+.demo-chart-wrap{
+  max-width:620px;margin:36px auto 0;
+  background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;
+}
+.demo-chart-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.demo-chart-label{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:0.06em}
+.demo-chart-bars{height:90px;display:flex;align-items:flex-end;gap:2px;overflow:hidden;position:relative}
+.demo-chart-footer{display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:#333}
+
+.compare-wrap{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:600px;margin:36px auto 0}
+.compare-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px}
+.compare-box svg{display:block;width:100%;height:60px;margin-top:10px}
+
+.bond-diagram{display:flex;align-items:center;justify-content:center;gap:8px;max-width:680px;margin:40px auto 0;flex-wrap:wrap;row-gap:16px}
+.bond-node{text-align:center;min-width:72px}
+.bond-node-icon{font-size:30px;line-height:1}
+.bond-node-name{font-size:12px;color:var(--dim);margin-top:5px;font-weight:600}
+.bond-node-sub{font-size:10px;color:#444;margin-top:2px}
+.bond-arrow{font-size:18px;color:#333;flex-shrink:0}
+.bond-center{background:var(--surface);border:1px solid var(--teal);border-radius:10px;padding:12px 18px;text-align:center}
+.bond-center-name{font-size:13px;font-weight:800;color:var(--teal);letter-spacing:-0.3px}
+.bond-center-sub{font-size:10px;color:#555;margin-top:3px}
+
 footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--dim);font-size:13px}
 
 /* ── Games section ────────────────────────────────────────────────────── */
@@ -363,6 +387,20 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
     VPNs and gaming boosters can't fix this — they still rely on one connection.
     <strong>When Starlink handoffs, everything drops.</strong>
   </p>
+
+  <!-- Simulated jitter demo chart -->
+  <div class="demo-chart-wrap">
+    <div class="demo-chart-header">
+      <span class="demo-chart-label">Starlink ping — live simulation</span>
+      <span id="demo-ms" style="font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--orange)">—ms</span>
+    </div>
+    <div class="demo-chart-bars" id="demo-bars"></div>
+    <div class="demo-chart-footer">
+      <span>← 60s ago</span>
+      <span id="demo-spike-label" style="color:var(--red);font-weight:700;font-size:11px;opacity:0;transition:opacity 0.3s"></span>
+      <span>now →</span>
+    </div>
+  </div>
 </section>
 
 <hr class="divider">
@@ -376,6 +414,60 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
     <br><br>
     <strong>No switching. No spikes. No disconnects.</strong>
   </p>
+
+  <!-- Before / After comparison -->
+  <div class="compare-wrap">
+    <div class="compare-box" style="border-color:rgba(255,69,58,0.3)">
+      <div style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.08em">Without AntiJitter</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:4px">Starlink alone — handoff spikes</div>
+      <svg viewBox="0 0 220 60" preserveAspectRatio="none">
+        <polyline points="0,45 18,43 36,44 50,42 56,8 66,43 84,44 100,43 116,7 126,44 144,43 160,44 172,6 182,43 200,44 220,43"
+          fill="none" stroke="#ff453a" stroke-width="2" stroke-linejoin="round"/>
+        <!-- spike markers -->
+        <line x1="56" y1="8" x2="56" y2="44" stroke="rgba(255,69,58,0.2)" stroke-width="1" stroke-dasharray="2,2"/>
+        <line x1="116" y1="7" x2="116" y2="44" stroke="rgba(255,69,58,0.2)" stroke-width="1" stroke-dasharray="2,2"/>
+        <line x1="172" y1="6" x2="172" y2="44" stroke="rgba(255,69,58,0.2)" stroke-width="1" stroke-dasharray="2,2"/>
+      </svg>
+    </div>
+    <div class="compare-box" style="border-color:rgba(48,209,88,0.3)">
+      <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:0.08em">With AntiJitter</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:4px">Bonded paths — zero spikes</div>
+      <svg viewBox="0 0 220 60" preserveAspectRatio="none">
+        <polyline points="0,44 20,43 40,44 60,43 80,44 100,43 120,44 140,43 160,44 180,43 200,44 220,43"
+          fill="none" stroke="#30d158" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Bonding architecture diagram -->
+  <div class="bond-diagram">
+    <div class="bond-node">
+      <div class="bond-node-icon">🛸</div>
+      <div class="bond-node-name">Starlink</div>
+      <div class="bond-node-sub">primary path</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
+      <div class="bond-arrow">↘</div>
+      <div class="bond-arrow">↗</div>
+    </div>
+    <div class="bond-node">
+      <div class="bond-node-icon">📡</div>
+      <div class="bond-node-name">4G / 5G</div>
+      <div class="bond-node-sub">backup path</div>
+    </div>
+    <div class="bond-arrow" style="color:var(--teal);font-weight:700">→</div>
+    <div class="bond-center">
+      <div class="bond-center-name">AntíJitter</div>
+      <div class="bond-center-sub">bonds both paths</div>
+      <div class="bond-center-sub" style="color:var(--teal);margin-top:4px">fastest packet wins</div>
+    </div>
+    <div class="bond-arrow" style="color:var(--teal);font-weight:700">→</div>
+    <div class="bond-node">
+      <div class="bond-node-icon">🎮</div>
+      <div class="bond-node-name" style="color:var(--green)">Your game</div>
+      <div class="bond-node-sub">zero spikes</div>
+    </div>
+  </div>
 </section>
 
 <hr class="divider">
@@ -444,6 +536,78 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
   </p>
   <p style="margin-top:12px;font-size:12px;color:#333">© 2026 AntíJitter. Built for Starlink gamers.</p>
 </footer>
+
+<!-- ── Demo jitter chart JavaScript ───────────────────────────────────── -->
+<script>
+(function demoChart() {
+  const BARS = 70;
+  const SPIKE_EVERY = 16;   // ticks between spikes (~every 10s at 600ms interval)
+  const container = document.getElementById('demo-bars');
+  const msEl      = document.getElementById('demo-ms');
+  const spikeEl   = document.getElementById('demo-spike-label');
+  if (!container) return;
+
+  const barEls = [];
+  for (let i = 0; i < BARS; i++) {
+    const b = document.createElement('div');
+    b.style.cssText = 'flex:1 0 0;max-width:10px;border-radius:2px 2px 0 0;height:4px;background:#1a1a1a;transition:height 0.2s,background 0.2s';
+    container.appendChild(b);
+    barEls.push(b);
+  }
+
+  let readings = [];
+  let tick = 0;
+  let spikeTimer = null;
+
+  function simMs() {
+    const isSpike = tick > 0 && tick % SPIKE_EVERY === 0;
+    tick++;
+    if (isSpike) return 260 + Math.random() * 180;
+    return 36 + Math.random() * 12 + Math.sin(tick * 0.4) * 4;
+  }
+
+  function update() {
+    const ms = simMs();
+    readings.push(ms);
+    if (readings.length > BARS) readings = readings.slice(-BARS);
+
+    const maxMs = Math.max(...readings, 80);
+    const chartH = 90;
+    const isSpike = ms > 120;
+
+    // pad start with nulls
+    const slice = readings.slice();
+    while (slice.length < BARS) slice.unshift(null);
+
+    for (let i = 0; i < BARS; i++) {
+      const v = slice[i];
+      if (!v) { barEls[i].style.height = '4px'; barEls[i].style.background = '#1a1a1a'; continue; }
+      const h = Math.max(4, (v / maxMs) * (chartH - 8));
+      const col = v > 120 ? '#ff453a' : v > 70 ? '#ff9f0a' : '#00c8d7';
+      barEls[i].style.height = h + 'px';
+      barEls[i].style.background = col;
+      barEls[i].style.boxShadow = v > 120 ? '0 0 6px #ff453a66' : 'none';
+    }
+
+    msEl.textContent = Math.round(ms) + 'ms';
+    msEl.style.color = isSpike ? 'var(--red)' : 'var(--orange)';
+
+    if (isSpike) {
+      spikeEl.textContent = '⚡ Handoff spike';
+      spikeEl.style.opacity = '1';
+      clearTimeout(spikeTimer);
+      spikeTimer = setTimeout(() => { spikeEl.style.opacity = '0'; }, 1800);
+    }
+  }
+
+  // Pre-fill with baseline so chart isn't empty on load
+  for (let i = 0; i < BARS - 1; i++) {
+    readings.push(36 + Math.random() * 12);
+  }
+  update();
+  setInterval(update, 600);
+})();
+</script>
 
 <!-- ── Games database JavaScript ──────────────────────────────────────── -->
 <script>
