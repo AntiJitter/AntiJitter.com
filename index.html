@@ -296,6 +296,7 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
     <div id="chart-wrap">
       <div class="chart-empty" id="chart-empty">Press Start Test to begin</div>
       <div id="baseline-line" style="display:none"><span id="baseline-label"></span></div>
+      <div id="gm-spike-flash" style="position:absolute;top:8px;right:8px;font-size:10px;font-weight:700;color:#00c8d7;background:rgba(0,200,215,0.12);border:1px solid rgba(0,200,215,0.35);border-radius:4px;padding:2px 8px;opacity:0;transition:opacity 0.3s;pointer-events:none;letter-spacing:0.04em"></div>
     </div>
 
     <div class="btn-row">
@@ -866,17 +867,28 @@ const SIM_SPIKE_EVERY  = 18;   // ticks between spikes (~10.8s at 600ms interval
 const SIM_SL_DURATION  = 4000; // 4s in Starlink mode
 const SIM_GM_DURATION  = 3000; // 3s in Game Mode
 
-let _simInterval   = null;
-let _simPhaseTimer = null;
-let _simPhase      = 'starlink';
-let _simTick       = 0;
-let _simReadings   = [];
-let _simSpikes     = 0;
+let _simInterval    = null;
+let _simPhaseTimer  = null;
+let _simPhase       = 'starlink';
+let _simTick        = 0;
+let _simReadings    = [];
+let _simSpikes      = 0;
+let _simGmSpike     = false;   // spike fired in game mode — show "eliminated" bar
+let _simGmSpikeH    = 0;       // height of that ghost spike bar
+let _simFlashTimer  = null;
 
 function _simMs() {
-  if (_simPhase === 'gamemode') return 33 + Math.random() * 4;
   // First spike at tick 5 (~3s in) so users see jitter quickly
   const isSpike = _simTick === 5 || (_simTick > 5 && (_simTick - 5) % SIM_SPIKE_EVERY === 0);
+  if (_simPhase === 'gamemode') {
+    if (isSpike) {
+      // Record the ghost spike height (scaled to chart) but keep ping flat
+      _simGmSpike  = true;
+      _simGmSpikeH = Math.min(88, Math.round((260 + Math.random() * 120) / 100 * 90));
+    }
+    return 33 + Math.random() * 4;
+  }
+  _simGmSpike = false;
   return isSpike
     ? 260 + Math.random() * 180
     : 36  + Math.random() * 12 + Math.sin(_simTick * 0.3) * 3;
@@ -892,7 +904,7 @@ function _simBadge() {
     badge.style.borderColor  = 'rgba(0,200,215,0.3)';
     labelEl.style.color      = '#00c8d7';
     labelEl.textContent      = '⚡ Game Mode';
-    subEl.textContent        = 'AntiJitter active — zero spikes';
+    subEl.textContent        = 'AntiJitter active — Starlink + 4G';
   } else {
     badge.style.background   = 'rgba(255,69,58,0.08)';
     badge.style.borderColor  = 'rgba(255,69,58,0.25)';
@@ -905,22 +917,49 @@ function _simBadge() {
 function _simDraw() {
   const wrap   = document.getElementById('chart-wrap');
   const slice  = _simReadings.slice(-SIM_BARS);
-  const maxMs  = Math.max(...slice, 80);
-  const height = 110 - 20;
+  // Fixed scale so baseline bars stay consistent height when spikes fire
+  const SCALE  = 100;
+  const height = 90;
 
   Array.from(wrap.querySelectorAll('.bar')).forEach(b => b.remove());
+
   slice.forEach((ms, i) => {
     const isSpike  = _simPhase === 'starlink' && ms > 120;
     const isLatest = i === slice.length - 1;
-    const h        = Math.max(4, (ms / maxMs) * height);
-    const div      = document.createElement('div');
-    div.className  = 'bar' + (isLatest ? ' latest' : '') + (isSpike ? ' spike' : '');
-    div.style.height = h + 'px';
-    div.style.background = _simPhase === 'gamemode'
-      ? '#00c8d7'
-      : (isSpike ? '#ff453a' : (ms < 80 ? '#00c8d7' : ms < 150 ? '#ff9f0a' : '#ff453a'));
+    // Baseline capped at SCALE so spikes clip to ceiling; baseline stays stable
+    const h = Math.max(4, Math.min((ms / SCALE) * height, height));
+    const div = document.createElement('div');
+
+    // Game mode last bar with ghost spike — teal outlined "eliminated" bar
+    if (_simPhase === 'gamemode' && isLatest && _simGmSpike) {
+      div.className    = 'bar latest';
+      div.style.height = _simGmSpikeH + 'px';
+      div.style.background   = 'rgba(0,200,215,0.18)';
+      div.style.border       = '1px solid rgba(0,200,215,0.6)';
+      div.style.boxSizing    = 'border-box';
+      div.style.boxShadow    = '0 0 8px rgba(0,200,215,0.4)';
+    } else {
+      div.className  = 'bar' + (isLatest ? ' latest' : '') + (isSpike ? ' spike' : '');
+      div.style.height = h + 'px';
+      div.style.background = _simPhase === 'gamemode'
+        ? '#00c8d7'
+        : (isSpike ? '#ff453a' : (ms < 80 ? '#00c8d7' : '#ff9f0a'));
+      if (isSpike) div.style.boxShadow = '0 0 8px rgba(255,69,58,0.5)';
+    }
     wrap.appendChild(div);
   });
+
+  // Flash "✓ 4G eliminated" label on ghost spike
+  if (_simGmSpike) {
+    const flash = document.getElementById('gm-spike-flash');
+    if (flash) {
+      flash.textContent  = '✓ 4G eliminated';
+      flash.style.opacity = '1';
+      clearTimeout(_simFlashTimer);
+      _simFlashTimer = setTimeout(() => { flash.style.opacity = '0'; }, 1600);
+    }
+    _simGmSpike = false; // clear after drawing
+  }
 }
 
 function _simUI() {
