@@ -277,6 +277,56 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
 
 <hr class="divider">
 
+<!-- ── Games database ─────────────────────────────────────────────────── -->
+<div class="games-section">
+  <div class="games-eyebrow">Smart Routing · 4G Data Protected</div>
+  <h2 class="games-headline">Only your game traffic.<br>Never your 4G limit.</h2>
+  <p class="games-sub">
+    AntíJitter routes <strong>only game server IPs through 4G</strong> — Netflix, YouTube, and everything else stays on Starlink.
+    Your monthly mobile data goes to gaming, not background downloads.
+  </p>
+
+  <div class="games-pillars">
+    <div class="games-pillar">
+      <h3>ASN-based precision</h3>
+      <p>Every game publisher has an AS Number. We fetch every IP they announce — automatically, weekly — so your routing stays current as servers scale.</p>
+    </div>
+    <div class="games-pillar">
+      <h3>Zero wasted data</h3>
+      <p>Your 4G limit is precious. We never route streaming, browsing, or updates over it — only the packets that matter for your game.</p>
+    </div>
+    <div class="games-pillar">
+      <h3>Set your own limit</h3>
+      <p>Cap how much 4G AntiJitter can use per month. Hit the limit and it gracefully falls back to Starlink-only — no surprise bills.</p>
+    </div>
+    <div class="games-pillar">
+      <h3>Auto-updated weekly</h3>
+      <p>Publishers spin up new server regions constantly. Our database syncs with RIPE NCC automatically so new servers are covered without any action from you.</p>
+    </div>
+  </div>
+
+  <!-- Live stats fetched from API -->
+  <div class="games-stats-strip" id="games-stats-strip">
+    <div class="games-stat"><div class="games-stat-val" id="gs-games">—</div><div class="games-stat-lbl">games protected</div></div>
+    <div class="games-stat"><div class="games-stat-val" id="gs-ranges">—</div><div class="games-stat-lbl">IP ranges covered</div></div>
+    <div class="games-stat"><div class="games-stat-val" id="gs-synced">—</div><div class="games-stat-lbl">last synced</div></div>
+  </div>
+
+  <!-- Game chip grid populated by JS -->
+  <div class="games-grid" id="games-grid">
+    <!-- skeleton chips while loading -->
+    <div class="game-chip" style="opacity:0.3"><div class="game-chip-icon">🎮</div><div><div class="game-chip-name">Loading…</div></div></div>
+    <div class="game-chip" style="opacity:0.3"><div class="game-chip-icon">🎯</div><div><div class="game-chip-name">Loading…</div></div></div>
+    <div class="game-chip" style="opacity:0.3"><div class="game-chip-icon">⚔️</div><div><div class="game-chip-name">Loading…</div></div></div>
+  </div>
+
+  <a href="https://app.antijitter.com/games" class="btn-ghost-sm" style="display:inline-block;margin-bottom:20px">
+    View full game database →
+  </a>
+</div>
+
+<hr class="divider">
+
 <!-- ── What is jitter — SEO content ──────────────────────────────────── -->
 <section class="wrap">
   <h2>What is Starlink jitter?</h2>
@@ -327,56 +377,6 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
     <strong>No switching. No spikes. No disconnects.</strong>
   </p>
 </section>
-
-<hr class="divider">
-
-<!-- ── Games database ─────────────────────────────────────────────────── -->
-<div class="games-section">
-  <div class="games-eyebrow">Smart Routing · 4G Data Protected</div>
-  <h2 class="games-headline">Only your game traffic.<br>Never your 4G limit.</h2>
-  <p class="games-sub">
-    AntíJitter routes <strong>only game server IPs through 4G</strong> — Netflix, YouTube, and everything else stays on Starlink.
-    Your monthly mobile data goes to gaming, not background downloads.
-  </p>
-
-  <div class="games-pillars">
-    <div class="games-pillar">
-      <h3>ASN-based precision</h3>
-      <p>Every game publisher has an AS Number. We fetch every IP they announce — automatically, weekly — so your routing stays current as servers scale.</p>
-    </div>
-    <div class="games-pillar">
-      <h3>Zero wasted data</h3>
-      <p>Your 4G limit is precious. We never route streaming, browsing, or updates over it — only the packets that matter for your game.</p>
-    </div>
-    <div class="games-pillar">
-      <h3>Set your own limit</h3>
-      <p>Cap how much 4G AntiJitter can use per month. Hit the limit and it gracefully falls back to Starlink-only — no surprise bills.</p>
-    </div>
-    <div class="games-pillar">
-      <h3>Auto-updated weekly</h3>
-      <p>Publishers spin up new server regions constantly. Our database syncs with RIPE NCC automatically so new servers are covered without any action from you.</p>
-    </div>
-  </div>
-
-  <!-- Live stats fetched from API -->
-  <div class="games-stats-strip" id="games-stats-strip">
-    <div class="games-stat"><div class="games-stat-val" id="gs-games">—</div><div class="games-stat-lbl">games protected</div></div>
-    <div class="games-stat"><div class="games-stat-val" id="gs-ranges">—</div><div class="games-stat-lbl">IP ranges covered</div></div>
-    <div class="games-stat"><div class="games-stat-val" id="gs-synced">—</div><div class="games-stat-lbl">last synced</div></div>
-  </div>
-
-  <!-- Game chip grid populated by JS -->
-  <div class="games-grid" id="games-grid">
-    <!-- skeleton chips while loading -->
-    <div class="game-chip" style="opacity:0.3"><div class="game-chip-icon">🎮</div><div><div class="game-chip-name">Loading…</div></div></div>
-    <div class="game-chip" style="opacity:0.3"><div class="game-chip-icon">🎯</div><div><div class="game-chip-name">Loading…</div></div></div>
-    <div class="game-chip" style="opacity:0.3"><div class="game-chip-icon">⚔️</div><div><div class="game-chip-name">Loading…</div></div></div>
-  </div>
-
-  <a href="https://app.antijitter.com/games" class="btn-ghost-sm" style="display:inline-block;margin-bottom:20px">
-    View full game database →
-  </a>
-</div>
 
 <hr class="divider">
 
