@@ -175,6 +175,33 @@ h2{font-size:clamp(28px,5vw,52px);letter-spacing:-2px;margin-bottom:16px}
 .price-features li::before{content:"✓ ";color:var(--teal)}
 
 footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--dim);font-size:13px}
+
+/* ── Games section ────────────────────────────────────────────────────── */
+.games-section{max-width:1100px;margin:0 auto;padding:72px 40px;text-align:center}
+.games-eyebrow{font-size:12px;color:var(--teal);font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:14px}
+.games-headline{font-size:clamp(28px,5vw,52px);letter-spacing:-2px;line-height:1.1;margin-bottom:16px}
+.games-sub{font-size:16px;color:var(--dim);line-height:1.65;max-width:560px;margin:0 auto 40px}
+
+.games-pillars{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:40px;text-align:left}
+.games-pillar{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+.games-pillar h3{font-size:14px;font-weight:700;margin-bottom:6px;color:var(--teal)}
+.games-pillar p{font-size:13px;color:var(--dim);line-height:1.6}
+
+.games-stats-strip{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:32px}
+.games-stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 24px;text-align:center}
+.games-stat-val{font-size:24px;font-weight:800;color:var(--teal);font-variant-numeric:tabular-nums}
+.games-stat-lbl{font-size:11px;color:var(--dim);margin-top:2px}
+
+.games-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:32px;text-align:left}
+.game-chip{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px}
+.game-chip-icon{font-size:20px;line-height:1}
+.game-chip-name{font-size:13px;font-weight:600;color:var(--white)}
+.game-chip-ranges{font-size:11px;color:var(--dim);margin-top:1px}
+
+@media(max-width:768px){
+  .games-section{padding:48px 20px}
+  .games-pillars{grid-template-columns:1fr 1fr}
+}
 </style>
 </head>
 <body>
@@ -303,6 +330,56 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
 
 <hr class="divider">
 
+<!-- ── Games database ─────────────────────────────────────────────────── -->
+<div class="games-section">
+  <div class="games-eyebrow">Smart Routing · 4G Data Protected</div>
+  <h2 class="games-headline">Only your game traffic.<br>Never your 4G limit.</h2>
+  <p class="games-sub">
+    AntíJitter routes <strong>only game server IPs through 4G</strong> — Netflix, YouTube, and everything else stays on Starlink.
+    Your monthly mobile data goes to gaming, not background downloads.
+  </p>
+
+  <div class="games-pillars">
+    <div class="games-pillar">
+      <h3>ASN-based precision</h3>
+      <p>Every game publisher has an AS Number. We fetch every IP they announce — automatically, weekly — so your routing stays current as servers scale.</p>
+    </div>
+    <div class="games-pillar">
+      <h3>Zero wasted data</h3>
+      <p>Your 4G limit is precious. We never route streaming, browsing, or updates over it — only the packets that matter for your game.</p>
+    </div>
+    <div class="games-pillar">
+      <h3>Set your own limit</h3>
+      <p>Cap how much 4G AntiJitter can use per month. Hit the limit and it gracefully falls back to Starlink-only — no surprise bills.</p>
+    </div>
+    <div class="games-pillar">
+      <h3>Auto-updated weekly</h3>
+      <p>Publishers spin up new server regions constantly. Our database syncs with RIPE NCC automatically so new servers are covered without any action from you.</p>
+    </div>
+  </div>
+
+  <!-- Live stats fetched from API -->
+  <div class="games-stats-strip" id="games-stats-strip">
+    <div class="games-stat"><div class="games-stat-val" id="gs-games">—</div><div class="games-stat-lbl">games protected</div></div>
+    <div class="games-stat"><div class="games-stat-val" id="gs-ranges">—</div><div class="games-stat-lbl">IP ranges covered</div></div>
+    <div class="games-stat"><div class="games-stat-val" id="gs-synced">—</div><div class="games-stat-lbl">last synced</div></div>
+  </div>
+
+  <!-- Game chip grid populated by JS -->
+  <div class="games-grid" id="games-grid">
+    <!-- skeleton chips while loading -->
+    <div class="game-chip" style="opacity:0.3"><div class="game-chip-icon">🎮</div><div><div class="game-chip-name">Loading…</div></div></div>
+    <div class="game-chip" style="opacity:0.3"><div class="game-chip-icon">🎯</div><div><div class="game-chip-name">Loading…</div></div></div>
+    <div class="game-chip" style="opacity:0.3"><div class="game-chip-icon">⚔️</div><div><div class="game-chip-name">Loading…</div></div></div>
+  </div>
+
+  <a href="https://app.antijitter.com/games" class="btn-ghost-sm" style="display:inline-block;margin-bottom:20px">
+    View full game database →
+  </a>
+</div>
+
+<hr class="divider">
+
 <!-- ── Product ────────────────────────────────────────────────────────── -->
 <section class="wrap">
   <h2>One price.<br>Unlimited devices.</h2>
@@ -367,6 +444,47 @@ footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);co
   </p>
   <p style="margin-top:12px;font-size:12px;color:#333">© 2026 AntíJitter. Built for Starlink gamers.</p>
 </footer>
+
+<!-- ── Games database JavaScript ──────────────────────────────────────── -->
+<script>
+(async function loadGames() {
+  const API = 'https://app.antijitter.com/api/games';
+  function fmtSynced(ts) {
+    if (!ts) return 'never';
+    const hrs = Math.floor((Date.now() - new Date(ts)) / 3600000);
+    if (hrs < 1) return 'just now';
+    if (hrs < 24) return hrs + 'h ago';
+    return Math.floor(hrs / 24) + 'd ago';
+  }
+  try {
+    const [games, stats] = await Promise.all([
+      fetch(API).then(r => r.json()),
+      fetch(API + '/stats').then(r => r.json()),
+    ]);
+
+    // Stats strip
+    document.getElementById('gs-games').textContent = stats.game_count ?? games.length;
+    document.getElementById('gs-ranges').textContent = (stats.range_count ?? 0).toLocaleString();
+    document.getElementById('gs-synced').textContent = fmtSynced(stats.last_synced);
+
+    // Game chips
+    const grid = document.getElementById('games-grid');
+    grid.innerHTML = games.map(g => `
+      <div class="game-chip">
+        <div class="game-chip-icon">${g.icon}</div>
+        <div>
+          <div class="game-chip-name">${g.name}</div>
+          <div class="game-chip-ranges">${g.range_count > 0 ? g.range_count.toLocaleString() + ' IP ranges' : 'syncing…'}</div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    // Silently fail — section is not critical
+    document.getElementById('games-stats-strip').style.display = 'none';
+    document.getElementById('games-grid').style.display = 'none';
+  }
+})();
+</script>
 
 <!-- ── Jitter test JavaScript ─────────────────────────────────────────── -->
 <script>
