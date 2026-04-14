@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./contexts/AuthContext";
 import Dashboard from "./pages/Dashboard";
+import GamesDatabase from "./pages/GamesDatabase";
 import JitterTest from "./pages/JitterTest";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/login"       element={<Login />} />
         <Route path="/register"    element={<Register />} />
         <Route path="/jitter-test" element={<JitterTest />} />
+        <Route path="/games"       element={<GamesDatabase />} />
 
         {/* Protected */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
