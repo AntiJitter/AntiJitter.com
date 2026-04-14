@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import PublicNav from "../components/PublicNav";
 
 const PING_URL = "/api/ping";
 const INTERVAL_MS = 600;
@@ -104,55 +105,42 @@ export default function JitterTest() {
   const baseline = baselineRef.current;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0a0a", color: "#f5f5f7", fontFamily: "system-ui, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: "#0a0a0a", color: "#f5f5f7", fontFamily: "'Mona Sans', system-ui, sans-serif" }}>
 
-      {/* Header */}
-      <header style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "16px 28px", borderBottom: "1px solid #1a1a1a",
-      }}>
-        <Link to="/" style={{ fontSize: 18, fontWeight: 800, textDecoration: "none", color: "#f5f5f7", letterSpacing: "-0.5px" }}>
-          Antí<span style={{ color: "#00c8d7" }}>Jitter</span>
-        </Link>
-        <div style={{ display: "flex", gap: 12 }}>
-          <Link to="/register" style={{ fontSize: 13, color: "#86868b", textDecoration: "none" }}>Sign up free</Link>
-          <Link to="/login"    style={{ fontSize: 13, color: "#00c8d7", textDecoration: "none" }}>Log in →</Link>
-        </div>
-      </header>
+      <PublicNav />
 
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "48px 24px" }}>
+      <div style={{ maxWidth: 700, margin: "0 auto", padding: "20px 24px" }}>
 
-        {/* Title */}
-        <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <h1 style={{ fontSize: "clamp(32px,6vw,56px)", fontWeight: 800, letterSpacing: "-2px", marginBottom: 12 }}>
-            Starlink Jitter Test
-          </h1>
-          <p style={{ fontSize: 16, color: "#86868b", maxWidth: 500, margin: "0 auto" }}>
-            See your real Starlink latency and jitter right now — free, no account needed.
-            Satellite handoffs show up as spikes in the chart.
-          </p>
-        </div>
-
-        {/* Big ping number */}
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <div style={{
-            fontSize: "clamp(72px,14vw,120px)",
-            fontWeight: 800,
-            fontVariantNumeric: "tabular-nums",
-            letterSpacing: "-4px",
-            lineHeight: 1,
-            color: current == null ? "#2a2a2a"
-              : current < 80 ? "#30d158"
-              : current < 150 ? "#ff9f0a" : "#ff453a",
-            transition: "color 0.3s",
-          }}>
-            {current ?? "—"}
+        {/* Title + ping side by side */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <div>
+            <h1 style={{ fontSize: "clamp(22px,4vw,32px)", fontWeight: 800, letterSpacing: "-1px", margin: 0 }}>
+              Starlink Jitter Test
+            </h1>
+            <p style={{ fontSize: 13, color: "#86868b", marginTop: 4, marginBottom: 0 }}>
+              Free · No account needed · Handoffs show as spikes
+            </p>
           </div>
-          <div style={{ fontSize: 16, color: "#86868b", marginTop: 6 }}>milliseconds</div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{
+              fontSize: "clamp(52px,10vw,80px)",
+              fontWeight: 800,
+              fontVariantNumeric: "tabular-nums",
+              letterSpacing: "-3px",
+              lineHeight: 1,
+              color: current == null ? "#2a2a2a"
+                : current < 80 ? "#30d158"
+                : current < 150 ? "#ff9f0a" : "#ff453a",
+              transition: "color 0.3s",
+            }}>
+              {current ?? "—"}
+            </div>
+            <div style={{ fontSize: 12, color: "#86868b", marginTop: 2 }}>ms</div>
+          </div>
         </div>
 
         {/* Stats row */}
-        <div style={{ display: "flex", justifyContent: "center", gap: 32, marginBottom: 28 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "10px 20px" }}>
           <Stat label="Jitter" value={readings.length > 1 ? `${j} ms` : "—"} color={readings.length > 1 ? g.color : undefined} />
           <Stat label="Spikes" value={phase === "idle" ? "—" : spikes} color={spikes > 0 ? "#ff453a" : undefined} />
           <Stat label="Avg ping" value={readings.length ? `${Math.round(readings.reduce((a,b)=>a+b,0)/readings.length)} ms` : "—"} />
@@ -162,7 +150,7 @@ export default function JitterTest() {
         {/* Live chart */}
         <div style={{
           background: "#111", border: "1px solid #1e1e1e", borderRadius: 12,
-          padding: "16px", marginBottom: 24, height: 160,
+          padding: "12px", marginBottom: 12, height: 120,
           display: "flex", alignItems: "flex-end", gap: 2, overflow: "hidden",
           position: "relative",
         }}>
@@ -170,8 +158,8 @@ export default function JitterTest() {
           {baseline && (
             <div style={{
               position: "absolute",
-              bottom: 16 + (baseline / maxMs) * (160 - 32),
-              left: 16, right: 16,
+              bottom: 12 + (baseline / maxMs) * (120 - 24),
+              left: 12, right: 12,
               borderTop: "1px dashed rgba(0,200,215,0.4)",
               pointerEvents: "none",
             }}>
@@ -193,7 +181,7 @@ export default function JitterTest() {
 
           {readings.slice(-MAX_BARS).map((ms, i, arr) => {
             const isSpike = baseline && ms > baseline * SPIKE_THRESHOLD;
-            const h = Math.max(4, (ms / maxMs) * (160 - 32));
+            const h = Math.max(4, (ms / maxMs) * (120 - 24));
             const color = isSpike ? "#ff453a" : ms < 80 ? "#00c8d7" : ms < 150 ? "#ff9f0a" : "#ff453a";
             return (
               <div
@@ -213,39 +201,36 @@ export default function JitterTest() {
           })}
         </div>
 
-        {/* Progress bar */}
-        {(phase === "running" || phase === "done") && (
-          <div style={{ background: "#1a1a1a", borderRadius: 99, height: 4, marginBottom: 24, overflow: "hidden" }}>
-            <div style={{
-              height: "100%", borderRadius: 99,
-              background: phase === "done" ? "#30d158" : "#00c8d7",
-              width: `${Math.min((elapsed / TEST_DURATION) * 100, 100)}%`,
-              transition: "width 0.5s",
-            }} />
-          </div>
-        )}
+        {/* Progress bar + button row */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+          {(phase === "running" || phase === "done") ? (
+            <div style={{ flex: 1, background: "#1a1a1a", borderRadius: 99, height: 4, overflow: "hidden" }}>
+              <div style={{
+                height: "100%", borderRadius: 99,
+                background: phase === "done" ? "#30d158" : "#00c8d7",
+                width: `${Math.min((elapsed / TEST_DURATION) * 100, 100)}%`,
+                transition: "width 0.5s",
+              }} />
+            </div>
+          ) : <div style={{ flex: 1 }} />}
 
-        {/* CTA button */}
-        {phase !== "running" && phase !== "warmup" && (
-          <div style={{ textAlign: "center", marginBottom: 32 }}>
+          {phase !== "running" && phase !== "warmup" && (
             <button
               onClick={start}
               style={{
                 background: "#00c8d7", color: "#000",
                 border: "none", borderRadius: 99,
-                padding: "16px 48px", fontSize: 16, fontWeight: 700,
-                cursor: "pointer", fontFamily: "inherit",
+                padding: "12px 36px", fontSize: 15, fontWeight: 700,
+                cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
               }}
             >
               {phase === "idle" ? "Start Test" : "Run Again"}
             </button>
-            {phase === "idle" && (
-              <p style={{ fontSize: 13, color: "#555", marginTop: 12 }}>
-                60-second test · No account required
-              </p>
-            )}
-          </div>
-        )}
+          )}
+          {phase === "warmup" && (
+            <span style={{ fontSize: 13, color: "#86868b" }}>Warming up…</span>
+          )}
+        </div>
 
         {/* Results card */}
         {phase === "done" && readings.length > 4 && (
