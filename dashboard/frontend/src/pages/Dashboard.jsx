@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import BondingPanel from "../components/BondingPanel";
 import ConnectionCard from "../components/ConnectionCard";
@@ -88,6 +88,13 @@ export default function Dashboard() {
           </div>
 
           <Link
+            to="/games"
+            style={{ fontSize: 12, color: "var(--dim)", textDecoration: "none", fontWeight: 600 }}
+          >
+            Games
+          </Link>
+
+          <Link
             to="/dashboard/subscription"
             style={{ fontSize: 12, color: isSubscribed ? "var(--green)" : "var(--dim)", textDecoration: "none" }}
           >
@@ -150,6 +157,9 @@ export default function Dashboard() {
 
             {/* Row 4: Failover log */}
             <FailoverLog events={events} />
+
+            {/* Row 5: Game coverage info */}
+            <GameCoverageWidget />
           </>
         )}
 
@@ -170,6 +180,74 @@ function cardProps(c) {
     signal: c.signal_pct,
     status: c.status,
   };
+}
+
+function GameCoverageWidget() {
+  const [stats, setStats] = useState(null);
+  const [games, setGames] = useState([]);
+
+  useEffect(() => {
+    fetch("/api/games/stats").then(r => r.json()).then(setStats).catch(() => {});
+    fetch("/api/games").then(r => r.json()).then(setGames).catch(() => {});
+  }, []);
+
+  return (
+    <div style={{
+      marginTop: 14,
+      background: "var(--surface)",
+      border: "1px solid var(--border)",
+      borderRadius: 12,
+      padding: "14px 18px",
+      display: "flex",
+      alignItems: "center",
+      gap: 16,
+      flexWrap: "wrap",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "0 0 auto" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--white)" }}>Game Coverage</span>
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+          background: "rgba(0,200,215,0.1)", color: "var(--teal)", border: "1px solid rgba(0,200,215,0.2)",
+        }}>LIVE</span>
+      </div>
+
+      {stats ? (
+        <div style={{ display: "flex", gap: 20, flex: 1, flexWrap: "wrap" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "var(--teal)", fontVariantNumeric: "tabular-nums" }}>{stats.game_count}</div>
+            <div style={{ fontSize: 10, color: "var(--dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>games</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "var(--white)", fontVariantNumeric: "tabular-nums" }}>{(stats.range_count ?? 0).toLocaleString()}</div>
+            <div style={{ fontSize: 10, color: "var(--dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>IP ranges</div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ flex: 1, fontSize: 13, color: "var(--dim)" }}>Loading…</div>
+      )}
+
+      {games.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flex: "1 1 auto" }}>
+          {games.slice(0, 8).map(g => (
+            <span key={g.id} title={g.name} style={{ fontSize: 18, lineHeight: 1 }}>{g.icon}</span>
+          ))}
+          {games.length > 8 && (
+            <span style={{ fontSize: 11, color: "var(--dim)", alignSelf: "center" }}>+{games.length - 8} more</span>
+          )}
+        </div>
+      )}
+
+      <Link
+        to="/games"
+        style={{
+          fontSize: 12, color: "var(--teal)", textDecoration: "none", fontWeight: 600,
+          whiteSpace: "nowrap", flex: "0 0 auto",
+        }}
+      >
+        View all →
+      </Link>
+    </div>
+  );
 }
 
 function SkeletonCards() {
