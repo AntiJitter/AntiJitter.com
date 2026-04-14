@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -94,3 +94,36 @@ class PingLog(Base):
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
 
     user: Mapped["User"] = relationship(back_populates="ping_logs")
+
+
+class Game(Base):
+    __tablename__ = "games"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    slug: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    icon: Mapped[str] = mapped_column(String, default="🎮")
+    asn: Mapped[str | None] = mapped_column(String, nullable=True)
+    ip_ranges: Mapped[list] = mapped_column(JSON, default=list)
+    regions: Mapped[list] = mapped_column(JSON, default=list)
+    # "active" | "coming_soon"
+    status: Mapped[str] = mapped_column(String, default="active")
+    range_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_synced: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class GameRequest(Base):
+    __tablename__ = "game_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    game_name: Mapped[str] = mapped_column(String, nullable=False)
+    # "PC" | "PlayStation" | "Xbox" | "Mobile" | "Switch" | "Other"
+    platform: Mapped[str | None] = mapped_column(String, nullable=True)
+    website: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    submitted_email: Mapped[str | None] = mapped_column(String, nullable=True)
+    votes: Mapped[int] = mapped_column(Integer, default=1)
+    # "pending" | "in_review" | "added" | "rejected"
+    status: Mapped[str] = mapped_column(String, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
