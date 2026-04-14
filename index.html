@@ -154,7 +154,7 @@ h2{font-size:clamp(28px,5vw,52px);letter-spacing:-2px;margin-bottom:16px}
 .result-actions{display:flex;gap:10px;flex-wrap:wrap;padding-top:12px;border-top:1px solid #1e1e1e}
 
 @media(max-width:768px){
-  .hero{flex-direction:column;padding:32px 20px;min-height:auto}
+  .hero{flex-direction:column-reverse;padding:32px 20px;min-height:auto}
   #tool{max-width:100%}
 }
 
@@ -863,8 +863,8 @@ function submitWaitlist(e) {
 
 const SIM_BARS         = 80;
 const SIM_SPIKE_EVERY  = 18;   // ticks between spikes (~10.8s at 600ms interval)
-const SIM_SL_DURATION  = 13000; // 13s in Starlink mode
-const SIM_GM_DURATION  = 9000;  // 9s in Game Mode
+const SIM_SL_DURATION  = 4000; // 4s in Starlink mode
+const SIM_GM_DURATION  = 3000; // 3s in Game Mode
 
 let _simInterval   = null;
 let _simPhaseTimer = null;
@@ -875,7 +875,8 @@ let _simSpikes     = 0;
 
 function _simMs() {
   if (_simPhase === 'gamemode') return 33 + Math.random() * 4;
-  const isSpike = _simTick > 2 && _simTick % SIM_SPIKE_EVERY === 0;
+  // First spike at tick 5 (~3s in) so users see jitter quickly
+  const isSpike = _simTick === 5 || (_simTick > 5 && (_simTick - 5) % SIM_SPIKE_EVERY === 0);
   return isSpike
     ? 260 + Math.random() * 180
     : 36  + Math.random() * 12 + Math.sin(_simTick * 0.3) * 3;
@@ -966,19 +967,26 @@ function stopSimulation() {
   clearInterval(_simInterval);
   clearTimeout(_simPhaseTimer);
   _simInterval = null;
-  const badge = document.getElementById('sim-badge');
-  if (badge) badge.style.display = 'none';
+  // Keep badge visible to preserve layout — switch to LIVE state
+  const labelEl = document.getElementById('sim-badge-label');
+  const subEl   = document.getElementById('sim-badge-sub');
+  const tagEl   = document.getElementById('sim-badge-tag');
+  const badge   = document.getElementById('sim-badge');
+  if (!badge) return;
+  badge.style.background  = 'rgba(48,209,88,0.08)';
+  badge.style.borderColor = 'rgba(48,209,88,0.25)';
+  labelEl.style.color     = '#30d158';
+  labelEl.textContent     = '🎯 Live test';
+  subEl.textContent       = 'measuring your actual connection';
+  tagEl.textContent       = 'LIVE';
+  tagEl.style.color       = '#30d158';
 }
 
 function startSimulation() {
-  // Pre-fill so chart isn't empty
-  for (let i = 0; i < SIM_BARS - 1; i++) {
-    _simReadings.push(36 + Math.random() * 10);
-  }
+  // Start from 0 bars — builds up like the real test ("big candlestick" effect)
   document.getElementById('chart-empty').style.display = 'none';
   _simBadge();
-  _simDraw();
-  _simUI();
+  // Don't draw or update UI yet — first tick will do it
 
   _simPhaseTimer = setTimeout(_simToGameMode, SIM_SL_DURATION);
 
