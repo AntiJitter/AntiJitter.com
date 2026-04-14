@@ -24,6 +24,7 @@ INITIAL_GAMES = [
     {"name": "Battlefield", "slug": "battlefield", "icon": "🎖️", "asn": "AS20815", "regions": ["EU", "NA"]},
     {"name": "Xbox Live / Halo", "slug": "xbox-live", "icon": "🟢", "asn": "AS8075", "regions": ["EU", "NA", "APAC"]},
     {"name": "Rainbow Six Siege", "slug": "rainbow-six", "icon": "🛡️", "asn": "AS29550", "regions": ["EU", "NA", "APAC"]},
+    {"name": "PlayStation Network", "slug": "playstation", "icon": "🎮", "asn": "AS45194", "regions": ["EU", "NA", "APAC"]},
 ]
 
 
