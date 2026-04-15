@@ -156,6 +156,9 @@ h2{font-size:clamp(28px,5vw,52px);letter-spacing:-2px;margin-bottom:16px}
 @media(max-width:768px){
   .hero{flex-direction:column-reverse;padding:32px 20px;min-height:auto}
   #tool{max-width:100%}
+  .hero-copy{text-align:center}
+  .hero-copy .sub{margin-left:auto;margin-right:auto}
+  .hero-ctas{justify-content:center}
 }
 
 /* ── Content sections ─────────────────────────────────────────────────── */
@@ -807,7 +810,7 @@ async function startTest() {
   document.getElementById('progress-bar').style.background = 'var(--teal)';
   document.getElementById('progress-bar').style.width = '0%';
   document.getElementById('start-btn').style.display = 'none';
-  document.getElementById('test-note').textContent = '';
+  document.getElementById('test-note').style.visibility = 'hidden';
   document.getElementById('tool-subtitle').textContent = 'Measuring from your browser';
   Array.from(document.querySelectorAll('.bar')).forEach(b=>b.remove());
 
@@ -840,6 +843,8 @@ async function startTest() {
       document.getElementById('progress-bar').style.background = '#30d158';
       document.getElementById('start-btn').textContent = 'Test Again';
       document.getElementById('start-btn').style.display = 'inline-block';
+      document.getElementById('test-note').style.visibility = 'visible';
+      document.getElementById('test-note').textContent = 'Test complete — results below';
       _showResults();
     }
   }, INTERVAL);
@@ -865,15 +870,16 @@ const SIM_SPIKE_EVERY  = 18;   // ticks between spikes (~10.8s at 600ms interval
 const SIM_SL_DURATION  = 4000; // 4s in Starlink mode
 const SIM_GM_DURATION  = 3000; // 3s in Game Mode
 
-let _simInterval    = null;
-let _simPhaseTimer  = null;
-let _simPhase       = 'starlink';
-let _simTick        = 0;
-let _simReadings    = [];
-let _simSpikes      = 0;
-let _simGmSpike     = false;   // spike fired in game mode — show "eliminated" bar
-let _simGmSpikeH    = 0;       // height of that ghost spike bar
-let _simFlashTimer  = null;
+let _simInterval     = null;
+let _simPhaseTimer   = null;
+let _simPhase        = 'starlink';
+let _simTick         = 0;
+let _simReadings     = [];
+let _simOrigReadings = [];   // preserved from Starlink mode for ghost spikes
+let _simSpikes       = 0;
+let _simGmSpike      = false;
+let _simGmSpikeH     = 0;
+let _simFlashTimer   = null;
 
 function _simMs() {
   // First spike at tick 5 (~3s in) so users see jitter quickly
@@ -915,39 +921,57 @@ function _simBadge() {
 function _simDraw() {
   const wrap   = document.getElementById('chart-wrap');
   const slice  = _simReadings.slice(-SIM_BARS);
-  // Fixed scale so baseline bars stay consistent height when spikes fire
   const SCALE  = 100;
   const height = 90;
+
+  // Get original (pre-Game-Mode) readings for ghost spikes
+  const origSlice = _simOrigReadings.slice(-SIM_BARS);
+  // Pad to match length
+  while (origSlice.length < slice.length) origSlice.unshift(null);
 
   Array.from(wrap.querySelectorAll('.bar')).forEach(b => b.remove());
 
   slice.forEach((ms, i) => {
-    const isSpike  = _simPhase === 'starlink' && ms > 120;
     const isLatest = i === slice.length - 1;
-    // Baseline capped at SCALE so spikes clip to ceiling; baseline stays stable
-    const h = Math.max(4, Math.min((ms / SCALE) * height, height));
     const div = document.createElement('div');
 
-    // Game mode last bar with ghost spike — teal outlined "eliminated" bar
-    if (_simPhase === 'gamemode' && isLatest && _simGmSpike) {
-      div.className    = 'bar latest';
-      div.style.height = _simGmSpikeH + 'px';
-      div.style.background   = 'rgba(0,200,215,0.18)';
-      div.style.border       = '1px solid rgba(0,200,215,0.6)';
-      div.style.boxSizing    = 'border-box';
-      div.style.boxShadow    = '0 0 8px rgba(0,200,215,0.4)';
-    } else {
+    if (_simPhase === 'starlink') {
+      // Starlink mode — normal bars, red for spikes
+      const isSpike = ms > 120;
+      const h = Math.max(4, Math.min((ms / SCALE) * height, height));
       div.className  = 'bar' + (isLatest ? ' latest' : '') + (isSpike ? ' spike' : '');
       div.style.height = h + 'px';
-      div.style.background = _simPhase === 'gamemode'
-        ? '#00c8d7'
-        : (isSpike ? '#ff453a' : (ms < 80 ? '#00c8d7' : '#ff9f0a'));
+      div.style.background = isSpike ? '#ff453a' : (ms < 80 ? '#00c8d7' : '#ff9f0a');
       if (isSpike) div.style.boxShadow = '0 0 8px rgba(255,69,58,0.5)';
+    } else {
+      // Game Mode — flat teal bars, but show ghost spikes where they existed
+      const origMs = origSlice[i];
+      const wasSpike = origMs && origMs > 120;
+      const flatH = Math.max(4, Math.min((ms / SCALE) * height, height));
+
+      if (wasSpike) {
+        // Ghost spike: full original height, striped red top + solid teal bottom
+        const origH = Math.min((origMs / SCALE) * height, height);
+        div.className = 'bar' + (isLatest ? ' latest' : '');
+        div.style.height = origH + 'px';
+        div.style.borderRadius = '2px 2px 0 0';
+        // Bottom: solid teal baseline, Top: diagonal striped red (eliminated)
+        div.style.background =
+          'linear-gradient(to top, #00c8d7 ' + flatH + 'px, transparent ' + flatH + 'px),' +
+          'repeating-linear-gradient(135deg, rgba(255,69,58,0.18) 0px, rgba(255,69,58,0.18) 2px, rgba(255,69,58,0.06) 2px, rgba(255,69,58,0.06) 5px)';
+        div.style.borderTop = '1px dashed rgba(255,69,58,0.5)';
+        div.style.boxSizing = 'border-box';
+      } else {
+        // Normal game mode bar — flat teal
+        div.className = 'bar' + (isLatest ? ' latest' : '');
+        div.style.height = flatH + 'px';
+        div.style.background = '#00c8d7';
+      }
     }
     wrap.appendChild(div);
   });
 
-  // Flash "✓ 4G eliminated" label on ghost spike
+  // Flash "✓ 4G eliminated" on new ghost spike
   if (_simGmSpike) {
     const flash = document.getElementById('gm-spike-flash');
     if (flash) {
@@ -956,7 +980,7 @@ function _simDraw() {
       clearTimeout(_simFlashTimer);
       _simFlashTimer = setTimeout(() => { flash.style.opacity = '0'; }, 1600);
     }
-    _simGmSpike = false; // clear after drawing
+    _simGmSpike = false;
   }
 }
 
@@ -986,16 +1010,18 @@ function _simUI() {
 }
 
 function _simToGameMode() {
-  _simPhase    = 'gamemode';
-  _simReadings = _simReadings.map(() => 33 + Math.random() * 4);
+  _simPhase        = 'gamemode';
+  _simOrigReadings = [..._simReadings]; // preserve spike data for ghost bars
+  _simReadings     = _simReadings.map(() => 33 + Math.random() * 4);
   _simBadge();
   _simPhaseTimer = setTimeout(_simToStarlink, SIM_GM_DURATION);
 }
 
 function _simToStarlink() {
-  _simPhase  = 'starlink';
-  _simTick   = 0;
-  _simSpikes = 0;
+  _simPhase        = 'starlink';
+  _simOrigReadings = [];
+  _simTick         = 0;
+  _simSpikes       = 0;
   _simBadge();
   _simPhaseTimer = setTimeout(_simToGameMode, SIM_SL_DURATION);
 }
