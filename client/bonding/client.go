@@ -231,6 +231,11 @@ type PathStats struct {
 	Bytes   uint64
 }
 
+// GetDataLimitMB returns the configured 4G data limit in megabytes.
+func (c *Client) GetDataLimitMB() int64 {
+	return c.cfg.DataLimitMB
+}
+
 func (c *Client) createPath(pc PathConfig) (*Path, error) {
 	localAddr, err := net.ResolveUDPAddr("udp", pc.LocalAddr+":0")
 	if err != nil {

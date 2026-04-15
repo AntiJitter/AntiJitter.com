@@ -28,6 +28,7 @@ import (
 	"antijitter.com/client/api"
 	"antijitter.com/client/bonding"
 	"antijitter.com/client/tunnel"
+	"antijitter.com/client/ui"
 )
 
 const (
@@ -50,6 +51,7 @@ func main() {
 }
 
 func onReady() {
+	systray.SetIcon(ui.IconGray)
 	systray.SetTitle("AntiJitter")
 	systray.SetTooltip("AntiJitter — Game Mode OFF")
 
@@ -157,6 +159,7 @@ func startGameMode(toggle, status, data *systray.MenuItem) error {
 	}
 
 	active = true
+	systray.SetIcon(ui.IconGreen)
 	toggle.SetTitle("Game Mode: ON")
 	status.SetTitle("Status: Active")
 	systray.SetTooltip("AntiJitter — Game Mode ON")
@@ -177,6 +180,7 @@ func stopGameMode(toggle, status, data *systray.MenuItem) {
 	}
 
 	active = false
+	systray.SetIcon(ui.IconGray)
 	toggle.SetTitle("Game Mode: OFF")
 	status.SetTitle("Status: Idle")
 	data.SetTitle("4G Data: 0 MB")
@@ -185,9 +189,12 @@ func stopGameMode(toggle, status, data *systray.MenuItem) {
 }
 
 // statsLoop updates the tray menu with live path stats and 4G data usage.
+// Switches tray icon to orange when 4G usage exceeds 90% of the limit.
 func statsLoop(status, data *systray.MenuItem) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+
+	wasOrange := false
 
 	for range ticker.C {
 		mu.Lock()
@@ -207,9 +214,22 @@ func statsLoop(status, data *systray.MenuItem) {
 			}
 			status.SetTitle(fmt.Sprintf("Status: Active — %s", pathInfo))
 
-			// Update 4G data usage
-			usedMB := float64(bondClient.DataUsed4G.Load()) / (1024 * 1024)
+			// Update 4G data usage + icon color
+			usedBytes := bondClient.DataUsed4G.Load()
+			usedMB := float64(usedBytes) / (1024 * 1024)
 			data.SetTitle(fmt.Sprintf("4G Data: %.1f MB", usedMB))
+
+			// Switch to orange icon when 4G usage hits 90% of limit
+			limitMB := bondClient.GetDataLimitMB()
+			if limitMB > 0 && int64(usedMB) >= limitMB*9/10 {
+				if !wasOrange {
+					systray.SetIcon(ui.IconOrange)
+					wasOrange = true
+				}
+			} else if wasOrange {
+				systray.SetIcon(ui.IconGreen)
+				wasOrange = false
+			}
 		}
 		mu.Unlock()
 	}

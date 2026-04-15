@@ -34,10 +34,11 @@ type WgConfig struct {
 
 // Tunnel wraps a running wireguard-go device and its TUN adapter.
 type Tunnel struct {
-	mu     sync.Mutex
-	dev    *device.Device
-	tunDev tun.Device
-	name   string
+	mu         sync.Mutex
+	dev        *device.Device
+	tunDev     tun.Device
+	name       string
+	allowedIPs []string
 }
 
 const tunName = "AntiJitter"
@@ -83,12 +84,20 @@ func StartTunnel(cfg WgConfig) (*Tunnel, error) {
 		return nil, fmt.Errorf("configure interface: %w", err)
 	}
 
+	// Add routes for AllowedIPs through the TUN adapter
+	for _, cidr := range cfg.AllowedIPs {
+		if err := addRoute(realName, cidr); err != nil {
+			log.Printf("Warning: failed to add route for %s: %v", cidr, err)
+		}
+	}
+
 	log.Printf("WireGuard tunnel up: %s addr=%s endpoint=%s", realName, cfg.Address, cfg.Endpoint)
 
 	return &Tunnel{
-		dev:    dev,
-		tunDev: tunDev,
-		name:   realName,
+		dev:       dev,
+		tunDev:    tunDev,
+		name:      realName,
+		allowedIPs: cfg.AllowedIPs,
 	}, nil
 }
 
@@ -96,6 +105,13 @@ func StartTunnel(cfg WgConfig) (*Tunnel, error) {
 func (t *Tunnel) StopTunnel() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	// Remove routes before closing the device
+	for _, cidr := range t.allowedIPs {
+		if err := removeRoute(t.name, cidr); err != nil {
+			log.Printf("Warning: failed to remove route for %s: %v", cidr, err)
+		}
+	}
 
 	if t.dev != nil {
 		t.dev.Close()
@@ -171,5 +187,26 @@ func configureInterface(ifname, address, dns string) error {
 		}
 	}
 
+	return nil
+}
+
+// addRoute adds a route for the given CIDR through the named TUN adapter.
+func addRoute(ifname, cidr string) error {
+	out, err := exec.Command("netsh", "interface", "ip", "add", "route",
+		cidr, ifname).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("netsh add route %s: %s: %w", cidr, strings.TrimSpace(string(out)), err)
+	}
+	log.Printf("Route added: %s via %s", cidr, ifname)
+	return nil
+}
+
+// removeRoute removes a route for the given CIDR from the named TUN adapter.
+func removeRoute(ifname, cidr string) error {
+	out, err := exec.Command("netsh", "interface", "ip", "delete", "route",
+		cidr, ifname).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("netsh delete route %s: %s: %w", cidr, strings.TrimSpace(string(out)), err)
+	}
 	return nil
 }
