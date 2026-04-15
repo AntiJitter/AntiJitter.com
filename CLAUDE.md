@@ -83,10 +83,43 @@ Call of Duty (AS21840), Valorant (AS6507), League of Legends (AS6507), Steam/CS2
 --teal:#00c8d7   --green:#30d158  --orange:#ff9f0a  --red:#ff453a
 ```
 
+## Bonding system (IN PROGRESS)
+
+**Goal**: Single Windows .exe that bundles WireGuard + multi-path bonding. User installs one app, clicks "Game Mode", done.
+
+**Already built** (committed in `server/` and `client/`):
+- `server/bonding/protocol.go` — shared protocol: 4-byte seq header, Encode/Decode, Deduplicator (sliding window), Sequencer
+- `server/main.go` — bonding server for Germany VPS: receives bonded UDP, deduplicates, forwards to local WireGuard
+- `client/bonding/client.go` — multi-path UDP client: sends each packet through ALL interfaces, tracks 4G data usage
+
+**Still needed**:
+- `client/go.mod` — Go module for the client
+- `client/main.go` — Windows app entry point with system tray GUI, Game Mode toggle
+- `client/tunnel/wireguard.go` — WireGuard tunnel management using wireguard-go + wintun
+- `client/api/client.go` — fetch WireGuard + bonding config from AntiJitter API (`/api/config`)
+- `dashboard/backend/routers/config.py` — new API endpoint: returns WireGuard keys + bonding server address per user
+- Server deployment script for Germany VPS (install, systemd service, firewall)
+
+**Architecture**:
+```
+Windows User App (.exe)
+├── System tray icon + Game Mode toggle
+├── WireGuard tunnel (wireguard-go + wintun driver)
+├── Bonding client (multi-path UDP sender)
+│   ├── Starlink path → Germany VPS :4567
+│   └── 4G/5G path  → Germany VPS :4567
+└── Config fetcher (pulls setup from app.antijitter.com/api/config)
+
+Germany VPS (game-mode.antijitter.com)
+├── Bonding server (:4567) → dedup → forward to WireGuard
+└── WireGuard server (:51820) → game traffic routing
+```
+
+**Key deps**: `golang.zx2c4.com/wireguard` (wireguard-go), `golang.zx2c4.com/wintun` (Windows TUN driver), `getlantern/systray` (system tray)
+
 ## Pending work
 
 - Weekly ASN sync scheduler (APScheduler) — currently only on startup
-- Engarde bonding client for Windows (Go binary)
 - Selective routing with real game IPs as WireGuard AllowedIPs
 - UPnP open NAT implementation
 - SWITCH hardware waitlist page
