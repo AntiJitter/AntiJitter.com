@@ -27,6 +27,7 @@ import (
 
 	"antijitter.com/client/api"
 	"antijitter.com/client/bonding"
+	"antijitter.com/client/iface"
 	"antijitter.com/client/tunnel"
 	"antijitter.com/client/ui"
 )
@@ -111,15 +112,37 @@ func startGameMode(toggle, status, data *systray.MenuItem) error {
 	if err != nil {
 		return fmt.Errorf("fetch config: %w", err)
 	}
-	log.Printf("Config received: bonding=%s, paths=%d", cfg.BondingServer, len(cfg.Paths))
+	log.Printf("Config received: bonding=%s", cfg.BondingServer)
 
-	// Convert API path configs to bonding path configs
-	bondPaths := make([]bonding.PathConfig, len(cfg.Paths))
-	for i, p := range cfg.Paths {
+	// Detect real network interfaces on this machine.
+	// Each interface gets its own UDP path to the bonding server.
+	// Without this, all paths would bind to 0.0.0.0 and go out the
+	// same route — no actual bonding.
+	status.SetTitle("Status: Detecting interfaces...")
+	allIfaces, err := iface.Detect()
+	if err != nil {
+		return fmt.Errorf("detect interfaces: %w", err)
+	}
+	log.Printf("Found %d interfaces, probing connectivity to %s...", len(allIfaces), cfg.BondingServer)
+
+	// Probe which interfaces can actually reach the bonding server
+	reachable := iface.Probe(allIfaces, cfg.BondingServer, 3*time.Second)
+	if len(reachable) == 0 {
+		return fmt.Errorf("no interfaces can reach bonding server %s", cfg.BondingServer)
+	}
+
+	// Convert to bonding paths — each binds to a specific local IP
+	bondPaths := make([]bonding.PathConfig, len(reachable))
+	for i, ifc := range reachable {
 		bondPaths[i] = bonding.PathConfig{
-			Name:      p.Name,
-			LocalAddr: p.LocalAddr,
+			Name:      ifc.Name,
+			LocalAddr: ifc.Addr,
 		}
+		log.Printf("Bonding path %d: %s (%s)", i+1, ifc.Name, ifc.Addr)
+	}
+
+	if len(bondPaths) < 2 {
+		log.Printf("Warning: only %d path available — bonding needs 2+ for redundancy", len(bondPaths))
 	}
 
 	// Start bonding client first (it listens on bondListenPort)
