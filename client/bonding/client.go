@@ -127,6 +127,20 @@ func (c *Client) Start() error {
 
 	c.running.Store(true)
 
+	// Periodic per-path send counters so we can see whether both paths
+	// are actually writing packets, independent of what reaches the server.
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for c.running.Load() {
+			<-ticker.C
+			for _, p := range c.paths {
+				log.Printf("path %s: sent=%d bytes=%d active=%v",
+					p.Name, p.packetsSent.Load(), p.bytesSent.Load(), p.active.Load())
+			}
+		}
+	}()
+
 	// Goroutine: receive replies from server → forward to local WireGuard
 	var wgClientAddr *net.UDPAddr
 	go func() {
