@@ -216,7 +216,7 @@ func (a *App) startGameMode() error {
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("detect interfaces: %w", err)
 	}
-	reachable := iface.Probe(allIfaces, cfg.BondingServer, 3*time.Second)
+	reachable := iface.Probe(allIfaces, cfg.BondingServer, 8*time.Second)
 	if len(reachable) == 0 {
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("no interfaces can reach %s", cfg.BondingServer)
