@@ -11,10 +11,13 @@
 package iface
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"net"
 	"time"
+
+	"antijitter.com/client/bonding"
 )
 
 // Interface represents a usable network adapter for bonding.
@@ -117,10 +120,12 @@ func Probe(interfaces []Interface, serverAddr string, timeout time.Duration) []I
 	return reachable
 }
 
-// probeOne sends a small UDP packet through a specific interface to the server.
-// The bonding server will see it as a normal bonded packet (with a seq number
-// of 0) and try to forward it to WireGuard — which is harmless.
-// If we get ANY response back, the path works.
+// probeOne tests real round-trip connectivity for a specific interface.
+// Binds to the interface (IP_UNICAST_IF on Windows) so the packet is forced
+// out the target adapter — matching what the bonding client will do. The
+// bonding server echoes probe packets back to the source, so we confirm
+// the adapter has a working internet path rather than trusting Write() to
+// succeed silently while packets vanish upstream.
 func probeOne(ifc Interface, serverAddr string, timeout time.Duration) bool {
 	localAddr, err := net.ResolveUDPAddr("udp", ifc.Addr+":0")
 	if err != nil {
@@ -137,17 +142,32 @@ func probeOne(ifc Interface, serverAddr string, timeout time.Duration) bool {
 	}
 	defer conn.Close()
 
-	// Send a probe: seq=0, payload="probe"
-	// The server will try to dedup and forward — that's fine.
+	if ifc.Index > 0 {
+		if err := bonding.BindSocketToInterface(conn, ifc.Index); err != nil {
+			return false
+		}
+	}
+
 	probe := []byte{0, 0, 0, 0, 'p', 'r', 'o', 'b', 'e'}
 	conn.SetWriteDeadline(time.Now().Add(timeout))
 	if _, err := conn.Write(probe); err != nil {
 		return false
 	}
 
-	// For UDP, we can't reliably get a response unless the server echoes.
-	// But if the Write succeeds without "network unreachable", the bind
-	// to this interface worked and there's a route to the server.
-	// That's enough to confirm this interface is usable for bonding.
-	return true
+	// Retransmit once mid-way through the timeout — the first probe can be
+	// lost if this path's NAT mapping hasn't warmed up yet.
+	buf := make([]byte, 64)
+	conn.SetReadDeadline(time.Now().Add(timeout / 2))
+	n, err := conn.Read(buf)
+	if err != nil {
+		if _, werr := conn.Write(probe); werr != nil {
+			return false
+		}
+		conn.SetReadDeadline(time.Now().Add(timeout / 2))
+		n, err = conn.Read(buf)
+		if err != nil {
+			return false
+		}
+	}
+	return n >= 9 && bytes.Equal(buf[:n], probe)
 }

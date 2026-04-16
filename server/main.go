@@ -120,6 +120,14 @@ func main() {
 			continue // malformed
 		}
 
+		// Echo reachability probes back to the client so each path can
+		// confirm real round-trip through its specific adapter, not just
+		// "Write() didn't fail". Probe: seq=0, payload starts with "probe".
+		if seq == 0 && len(payload) >= 5 && string(payload[:5]) == "probe" {
+			bondConn.WriteToUDP(buf[:n], remoteAddr)
+			continue
+		}
+
 		// Get or create client state (keyed by "client" for now — single client)
 		// Multi-client: key by WireGuard handshake or auth token
 		key := "default"
