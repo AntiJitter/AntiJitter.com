@@ -24,7 +24,15 @@ type Interface struct {
 	Index int    // OS interface index
 }
 
-// Detect finds all non-loopback, up, IPv4 interfaces.
+// tunSubnet is the WireGuard TUN address range — exclude it from bonding paths
+// to avoid a routing loop (tunnel packets going back through the tunnel).
+var tunSubnet = func() *net.IPNet {
+	_, n, _ := net.ParseCIDR("10.10.0.0/24")
+	return n
+}()
+
+// Detect finds all non-loopback, up, IPv4 interfaces suitable for bonding.
+// Excludes the AntiJitter TUN adapter (10.10.0.0/24) to prevent loops.
 // Returns at least one or an error.
 func Detect() ([]Interface, error) {
 	ifaces, err := net.Interfaces()
@@ -57,6 +65,9 @@ func Detect() ([]Interface, error) {
 			}
 			if ip4.IsLoopback() || ip4.IsLinkLocalUnicast() {
 				continue
+			}
+			if tunSubnet.Contains(ip4) {
+				continue // skip the AntiJitter TUN — would cause a routing loop
 			}
 
 			result = append(result, Interface{
