@@ -216,26 +216,27 @@ func (a *App) startGameMode() error {
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("detect interfaces: %w", err)
 	}
-	reachable := iface.Probe(allIfaces, cfg.BondingServer, 8*time.Second)
+	reachable := iface.Probe(allIfaces, cfg.BondingServers, 8*time.Second)
 	if len(reachable) == 0 {
 		runtime.EventsEmit(a.ctx, "connecting", false)
-		return fmt.Errorf("no interfaces can reach %s", cfg.BondingServer)
+		return fmt.Errorf("no interfaces can reach any bonding server")
 	}
 
 	bondPaths := make([]bonding.PathConfig, len(reachable))
-	for i, ifc := range reachable {
+	for i, r := range reachable {
 		bondPaths[i] = bonding.PathConfig{
-			Name:      ifc.Name,
-			LocalAddr: ifc.Addr,
-			IfIndex:   ifc.Index,
+			Name:       r.Interface.Name,
+			LocalAddr:  r.Interface.Addr,
+			IfIndex:    r.Interface.Index,
+			ServerAddr: r.ServerAddr,
 		}
-		log.Printf("Bonding path %d: %s (%s) ifindex=%d", i+1, ifc.Name, ifc.Addr, ifc.Index)
+		log.Printf("Bonding path %d: %s (%s) ifindex=%d → %s",
+			i+1, r.Interface.Name, r.Interface.Addr, r.Interface.Index, r.ServerAddr)
 	}
 
 	// Start bonding client
 	bondClient, err := bonding.New(bonding.Config{
 		ListenPort:  bondListenPort,
-		ServerAddr:  cfg.BondingServer,
 		Paths:       bondPaths,
 		DataLimitMB: cfg.DataLimitMB,
 	})

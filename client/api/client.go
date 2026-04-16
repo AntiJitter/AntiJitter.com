@@ -14,9 +14,9 @@ import (
 
 // AntiJitterConfig is the full configuration returned by GET /api/config.
 type AntiJitterConfig struct {
-	WireGuard     WireGuardConfig `json:"wireguard"`
-	BondingServer string          `json:"bonding_server"`
-	DataLimitMB   int64           `json:"data_limit_mb"`
+	WireGuard      WireGuardConfig `json:"wireguard"`
+	BondingServers []string        `json:"bonding_servers"`
+	DataLimitMB    int64           `json:"data_limit_mb"`
 }
 
 // WireGuardConfig holds the tunnel parameters.
@@ -73,8 +73,8 @@ func (c *Client) FetchConfig() (*AntiJitterConfig, error) {
 		return nil, fmt.Errorf("decode config response: %w", err)
 	}
 
-	if cfg.BondingServer == "" {
-		return nil, fmt.Errorf("config missing bonding_server")
+	if len(cfg.BondingServers) == 0 {
+		return nil, fmt.Errorf("config missing bonding_servers")
 	}
 	if cfg.WireGuard.PrivateKey == "" {
 		return nil, fmt.Errorf("config missing wireguard private_key")

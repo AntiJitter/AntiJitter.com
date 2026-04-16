@@ -34,10 +34,9 @@ type Config struct {
 	// WireGuard Endpoint = 127.0.0.1:ListenPort
 	ListenPort int
 
-	// ServerAddr is the bonding server address (Germany VPS).
-	ServerAddr string
-
-	// Paths are the network interfaces to bond.
+	// Paths are the network interfaces to bond. Each path carries its own
+	// bonding-server address so different paths can use different server
+	// ports (e.g. 4567 for Starlink, 443 for a carrier that blocks 4567).
 	Paths []PathConfig
 
 	// DataLimitMB is the monthly 4G data cap (0 = unlimited).
@@ -46,9 +45,10 @@ type Config struct {
 
 // PathConfig defines a single network path.
 type PathConfig struct {
-	Name      string // "Starlink", "4G"
-	LocalAddr string // local IP of this interface, e.g. "192.168.1.100"
-	IfIndex   int    // OS interface index — needed to force per-adapter egress
+	Name       string // "Starlink", "4G"
+	LocalAddr  string // local IP of this interface, e.g. "192.168.1.100"
+	IfIndex    int    // OS interface index — needed to force per-adapter egress
+	ServerAddr string // bonding server "host:port" for this path
 }
 
 // Client is the bonding client.
@@ -57,7 +57,6 @@ type Client struct {
 	seq       sequencer
 	paths     []*Path
 	localConn *net.UDPConn // receives from local WireGuard
-	serverAddr *net.UDPAddr
 	mu        sync.RWMutex
 	running   atomic.Bool
 
@@ -83,15 +82,7 @@ const headerSize = 4 // 4-byte sequence number
 
 // New creates a new bonding client.
 func New(cfg Config) (*Client, error) {
-	serverAddr, err := net.ResolveUDPAddr("udp", cfg.ServerAddr)
-	if err != nil {
-		return nil, fmt.Errorf("resolve server addr: %w", err)
-	}
-
-	return &Client{
-		cfg:        cfg,
-		serverAddr: serverAddr,
-	}, nil
+	return &Client{cfg: cfg}, nil
 }
 
 // Start begins bonding. Blocks until Stop() is called.
@@ -122,8 +113,7 @@ func (c *Client) Start() error {
 		return fmt.Errorf("no paths available")
 	}
 
-	log.Printf("Bonding active: %d paths, server=%s, local=:%d",
-		len(c.paths), c.cfg.ServerAddr, c.cfg.ListenPort)
+	log.Printf("Bonding active: %d paths, local=:%d", len(c.paths), c.cfg.ListenPort)
 
 	c.running.Store(true)
 
@@ -256,7 +246,11 @@ func (c *Client) createPath(pc PathConfig) (*Path, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := net.DialUDP("udp", localAddr, c.serverAddr)
+	serverAddr, err := net.ResolveUDPAddr("udp", pc.ServerAddr)
+	if err != nil {
+		return nil, fmt.Errorf("resolve server addr %q: %w", pc.ServerAddr, err)
+	}
+	conn, err := net.DialUDP("udp", localAddr, serverAddr)
 	if err != nil {
 		return nil, err
 	}

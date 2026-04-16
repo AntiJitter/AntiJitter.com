@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-BOND_PORT=4567
+BOND_PORTS="4567,443"  # 4567 = native, 443 = carrier-friendly fallback (UDP/QUIC port)
 PEER_API_PORT=4568
 WG_PORT=51820
 GO_VERSION="1.22.2"
@@ -74,7 +74,8 @@ Wants=wg-quick@wg0.service
 [Service]
 Type=simple
 EnvironmentFile=-${INSTALL_DIR}/.env
-ExecStart=${INSTALL_DIR}/bonding-server --bond-port=${BOND_PORT} --wg-port=${WG_PORT}
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ExecStart=${INSTALL_DIR}/bonding-server --bond-ports=${BOND_PORTS} --wg-port=${WG_PORT}
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
@@ -95,20 +96,28 @@ echo "Configuring firewall..."
 
 FINLAND_IP="204.168.194.77"  # Only Finland API should talk to peer API
 
+IFS=',' read -ra BOND_PORT_LIST <<< "$BOND_PORTS"
+
 if command -v ufw &>/dev/null; then
-    ufw allow "${BOND_PORT}/udp" comment "AntiJitter Bonding"
+    for p in "${BOND_PORT_LIST[@]}"; do
+        ufw allow "${p}/udp" comment "AntiJitter Bonding"
+    done
     ufw allow "${WG_PORT}/udp" comment "WireGuard"
     ufw allow from "${FINLAND_IP}" to any port "${PEER_API_PORT}" proto tcp comment "AntiJitter Peer API"
     echo "UFW rules added"
 elif command -v firewall-cmd &>/dev/null; then
-    firewall-cmd --permanent --add-port="${BOND_PORT}/udp"
+    for p in "${BOND_PORT_LIST[@]}"; do
+        firewall-cmd --permanent --add-port="${p}/udp"
+    done
     firewall-cmd --permanent --add-port="${WG_PORT}/udp"
     firewall-cmd --permanent --add-rich-rule="rule family=ipv4 source address=${FINLAND_IP} port port=${PEER_API_PORT} protocol=tcp accept"
     firewall-cmd --reload
     echo "firewalld rules added"
 else
-    iptables -C INPUT -p udp --dport "${BOND_PORT}" -j ACCEPT 2>/dev/null \
-        || iptables -A INPUT -p udp --dport "${BOND_PORT}" -j ACCEPT
+    for p in "${BOND_PORT_LIST[@]}"; do
+        iptables -C INPUT -p udp --dport "${p}" -j ACCEPT 2>/dev/null \
+            || iptables -A INPUT -p udp --dport "${p}" -j ACCEPT
+    done
     iptables -C INPUT -p udp --dport "${WG_PORT}" -j ACCEPT 2>/dev/null \
         || iptables -A INPUT -p udp --dport "${WG_PORT}" -j ACCEPT
     iptables -C INPUT -p tcp -s "${FINLAND_IP}" --dport "${PEER_API_PORT}" -j ACCEPT 2>/dev/null \
@@ -129,7 +138,7 @@ fi
 
 sleep 1
 if systemctl is-active --quiet "$SERVICE_NAME"; then
-    echo "[OK] Bonding server is running on :${BOND_PORT}"
+    echo "[OK] Bonding server is running on ports: ${BOND_PORTS}"
 else
     echo "[!!] Bonding server failed to start:"
     journalctl -u "$SERVICE_NAME" --no-pager -n 10
@@ -137,6 +146,6 @@ fi
 
 echo ""
 echo "=== Done ==="
-echo "Bonding:   0.0.0.0:${BOND_PORT} → 127.0.0.1:${WG_PORT}"
+echo "Bonding:   0.0.0.0:${BOND_PORTS} → 127.0.0.1:${WG_PORT}"
 echo "Logs:      journalctl -u ${SERVICE_NAME} -f"
 echo "Restart:   systemctl restart ${SERVICE_NAME}"
