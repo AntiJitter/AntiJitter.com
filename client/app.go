@@ -58,10 +58,35 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.setupFileLogging()
 	token, _ := a.loadToken()
 	a.mu.Lock()
 	a.token = token
 	a.mu.Unlock()
+}
+
+// setupFileLogging redirects log output to %APPDATA%\AntiJitter\antijitter.log
+// so we can inspect app behavior without building in debug mode (Wails GUI
+// builds detach stdout, so log.Printf goes nowhere otherwise).
+func (a *App) setupFileLogging() {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+	logDir := filepath.Join(dir, "AntiJitter")
+	if err := os.MkdirAll(logDir, 0700); err != nil {
+		return
+	}
+	f, err := os.OpenFile(
+		filepath.Join(logDir, "antijitter.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
+		0600,
+	)
+	if err != nil {
+		return
+	}
+	log.SetOutput(f)
+	log.Printf("=== AntiJitter started ===")
 }
 
 func (a *App) shutdown(ctx context.Context) {
