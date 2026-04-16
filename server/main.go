@@ -46,6 +46,13 @@ func main() {
 	log.Printf("  Bond listen: 0.0.0.0:%d", *bondPort)
 	log.Printf("  WireGuard:   %s:%d", *wgHost, *wgPort)
 
+	// Start peer-management HTTP API if ADD_PEER_TOKEN is set
+	if port, iface, token, enabled := getPeerAPIConfig(); enabled {
+		go startPeerAPI(port, iface, token)
+	} else {
+		log.Printf("  Peer API:    disabled (set ADD_PEER_TOKEN to enable)")
+	}
+
 	// Listen for bonded client packets
 	bondAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", *bondPort))
 	if err != nil {
@@ -111,6 +118,14 @@ func main() {
 		seq, payload, ok := bonding.Decode(buf[:n])
 		if !ok {
 			continue // malformed
+		}
+
+		// Echo reachability probes back to the client so each path can
+		// confirm real round-trip through its specific adapter, not just
+		// "Write() didn't fail". Probe: seq=0, payload starts with "probe".
+		if seq == 0 && len(payload) >= 5 && string(payload[:5]) == "probe" {
+			bondConn.WriteToUDP(buf[:n], remoteAddr)
+			continue
 		}
 
 		// Get or create client state (keyed by "client" for now — single client)

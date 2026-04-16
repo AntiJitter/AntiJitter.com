@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     server_wg_public_key: str = ""
     wg_interface: str = "wg0"
 
+    # Germany VPS peer-management API (runs alongside the bonding server)
+    bonding_peer_api_url: str = "http://178.104.168.177:4568"
+    bonding_peer_api_token: str = ""
+
     class Config:
         env_file = _ENV_FILE
         env_file_encoding = "utf-8"

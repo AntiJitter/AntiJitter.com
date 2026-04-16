@@ -48,6 +48,7 @@ type Config struct {
 type PathConfig struct {
 	Name      string // "Starlink", "4G"
 	LocalAddr string // local IP of this interface, e.g. "192.168.1.100"
+	IfIndex   int    // OS interface index — needed to force per-adapter egress
 }
 
 // Client is the bonding client.
@@ -125,6 +126,20 @@ func (c *Client) Start() error {
 		len(c.paths), c.cfg.ServerAddr, c.cfg.ListenPort)
 
 	c.running.Store(true)
+
+	// Periodic per-path send counters so we can see whether both paths
+	// are actually writing packets, independent of what reaches the server.
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for c.running.Load() {
+			<-ticker.C
+			for _, p := range c.paths {
+				log.Printf("path %s: sent=%d bytes=%d active=%v",
+					p.Name, p.packetsSent.Load(), p.bytesSent.Load(), p.active.Load())
+			}
+		}
+	}()
 
 	// Goroutine: receive replies from server → forward to local WireGuard
 	var wgClientAddr *net.UDPAddr
@@ -244,6 +259,15 @@ func (c *Client) createPath(pc PathConfig) (*Path, error) {
 	conn, err := net.DialUDP("udp", localAddr, c.serverAddr)
 	if err != nil {
 		return nil, err
+	}
+
+	// Force egress through this specific adapter — otherwise Windows' route
+	// table picks the default interface and both paths hit the same uplink.
+	if pc.IfIndex > 0 {
+		if err := bindSocketToInterface(conn, pc.IfIndex); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("bind to interface %d: %w", pc.IfIndex, err)
+		}
 	}
 
 	p := &Path{
