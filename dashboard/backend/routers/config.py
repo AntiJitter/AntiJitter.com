@@ -74,9 +74,12 @@ async def _register_peer_on_bonding_server(public_key: str, peer_ip: str) -> Non
         logger.warning("bonding_peer_api_token not set — skipping peer registration")
         return
 
+    # Strip any CIDR suffix — the Germany server expects a bare IP
+    bare_ip = peer_ip.split("/", 1)[0]
+
     url = f"{settings.bonding_peer_api_url}/peers"
     headers = {"Authorization": f"Bearer {settings.bonding_peer_api_token}"}
-    payload = {"public_key": public_key, "peer_ip": peer_ip}
+    payload = {"public_key": public_key, "peer_ip": bare_ip}
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
