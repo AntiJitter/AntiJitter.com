@@ -15,10 +15,14 @@ so the Windows app is fully self-configuring.
 
 import asyncio
 import ipaddress
+import logging
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from ..auth import get_current_user
 from ..config import settings
@@ -54,6 +58,38 @@ async def _generate_keypair() -> tuple[str, str]:
     return private_key, public_key
 
 
+async def _register_peer_on_bonding_server(public_key: str, peer_ip: str) -> None:
+    """Call the Germany VPS peer-management API to add the WireGuard peer.
+
+    Raises HTTPException if the call fails — we can't let the user connect
+    with keys that aren't registered on the server (handshake would fail).
+    """
+    if not settings.bonding_peer_api_token:
+        logger.warning("bonding_peer_api_token not set — skipping peer registration")
+        return
+
+    url = f"{settings.bonding_peer_api_url}/peers"
+    headers = {"Authorization": f"Bearer {settings.bonding_peer_api_token}"}
+    payload = {"public_key": public_key, "peer_ip": peer_ip}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+    except httpx.HTTPError as e:
+        logger.exception("peer API request failed")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not reach bonding server to register peer: {e}",
+        )
+
+    if resp.status_code != 200:
+        logger.error("peer API returned %s: %s", resp.status_code, resp.text)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Bonding server rejected peer registration ({resp.status_code})",
+        )
+
+
 async def _next_peer_ip(db: AsyncSession) -> str:
     """Allocate the next available IP from the 10.10.0.0/24 pool."""
     result = await db.execute(select(Subscription.wireguard_peer_ip))
@@ -86,19 +122,13 @@ async def get_config(
         private_key, public_key = await _generate_keypair()
         peer_ip = await _next_peer_ip(db)
 
+        # Register on Germany VPS first — if this fails we don't persist
+        # keys that can't actually connect
+        await _register_peer_on_bonding_server(public_key, peer_ip)
+
         sub.wireguard_private_key = private_key
         sub.wireguard_public_key = public_key
         sub.wireguard_peer_ip = peer_ip
-
-        # Add peer to live WireGuard on Germany VPS (best-effort)
-        try:
-            await _run(
-                f"wg set {settings.wg_interface} peer {public_key} "
-                f"allowed-ips {peer_ip}/32 persistent-keepalive 25"
-            )
-        except RuntimeError:
-            pass  # wg not available in dev
-
         await db.commit()
 
     return {

@@ -16,6 +16,7 @@
 set -euo pipefail
 
 BOND_PORT=4567
+PEER_API_PORT=4568
 WG_PORT=51820
 GO_VERSION="1.22.2"
 INSTALL_DIR="/opt/antijitter-bonding"
@@ -72,6 +73,7 @@ Wants=wg-quick@wg0.service
 
 [Service]
 Type=simple
+EnvironmentFile=-${INSTALL_DIR}/.env
 ExecStart=${INSTALL_DIR}/bonding-server --bond-port=${BOND_PORT} --wg-port=${WG_PORT}
 Restart=always
 RestartSec=5
@@ -91,13 +93,17 @@ echo "Service ${SERVICE_NAME} installed and started"
 echo ""
 echo "Configuring firewall..."
 
+FINLAND_IP="204.168.194.77"  # Only Finland API should talk to peer API
+
 if command -v ufw &>/dev/null; then
     ufw allow "${BOND_PORT}/udp" comment "AntiJitter Bonding"
     ufw allow "${WG_PORT}/udp" comment "WireGuard"
+    ufw allow from "${FINLAND_IP}" to any port "${PEER_API_PORT}" proto tcp comment "AntiJitter Peer API"
     echo "UFW rules added"
 elif command -v firewall-cmd &>/dev/null; then
     firewall-cmd --permanent --add-port="${BOND_PORT}/udp"
     firewall-cmd --permanent --add-port="${WG_PORT}/udp"
+    firewall-cmd --permanent --add-rich-rule="rule family=ipv4 source address=${FINLAND_IP} port port=${PEER_API_PORT} protocol=tcp accept"
     firewall-cmd --reload
     echo "firewalld rules added"
 else
@@ -105,6 +111,8 @@ else
         || iptables -A INPUT -p udp --dport "${BOND_PORT}" -j ACCEPT
     iptables -C INPUT -p udp --dport "${WG_PORT}" -j ACCEPT 2>/dev/null \
         || iptables -A INPUT -p udp --dport "${WG_PORT}" -j ACCEPT
+    iptables -C INPUT -p tcp -s "${FINLAND_IP}" --dport "${PEER_API_PORT}" -j ACCEPT 2>/dev/null \
+        || iptables -A INPUT -p tcp -s "${FINLAND_IP}" --dport "${PEER_API_PORT}" -j ACCEPT
     echo "iptables rules added (install iptables-persistent to survive reboot)"
 fi
 

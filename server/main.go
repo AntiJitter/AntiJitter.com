@@ -46,6 +46,13 @@ func main() {
 	log.Printf("  Bond listen: 0.0.0.0:%d", *bondPort)
 	log.Printf("  WireGuard:   %s:%d", *wgHost, *wgPort)
 
+	// Start peer-management HTTP API if ADD_PEER_TOKEN is set
+	if port, iface, token, enabled := getPeerAPIConfig(); enabled {
+		go startPeerAPI(port, iface, token)
+	} else {
+		log.Printf("  Peer API:    disabled (set ADD_PEER_TOKEN to enable)")
+	}
+
 	// Listen for bonded client packets
 	bondAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", *bondPort))
 	if err != nil {
