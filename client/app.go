@@ -199,8 +199,12 @@ func (a *App) startGameMode() error {
 
 	bondPaths := make([]bonding.PathConfig, len(reachable))
 	for i, ifc := range reachable {
-		bondPaths[i] = bonding.PathConfig{Name: ifc.Name, LocalAddr: ifc.Addr}
-		log.Printf("Bonding path %d: %s (%s)", i+1, ifc.Name, ifc.Addr)
+		bondPaths[i] = bonding.PathConfig{
+			Name:      ifc.Name,
+			LocalAddr: ifc.Addr,
+			IfIndex:   ifc.Index,
+		}
+		log.Printf("Bonding path %d: %s (%s) ifindex=%d", i+1, ifc.Name, ifc.Addr, ifc.Index)
 	}
 
 	// Start bonding client

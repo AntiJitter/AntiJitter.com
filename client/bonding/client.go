@@ -48,6 +48,7 @@ type Config struct {
 type PathConfig struct {
 	Name      string // "Starlink", "4G"
 	LocalAddr string // local IP of this interface, e.g. "192.168.1.100"
+	IfIndex   int    // OS interface index — needed to force per-adapter egress
 }
 
 // Client is the bonding client.
@@ -244,6 +245,15 @@ func (c *Client) createPath(pc PathConfig) (*Path, error) {
 	conn, err := net.DialUDP("udp", localAddr, c.serverAddr)
 	if err != nil {
 		return nil, err
+	}
+
+	// Force egress through this specific adapter — otherwise Windows' route
+	// table picks the default interface and both paths hit the same uplink.
+	if pc.IfIndex > 0 {
+		if err := bindSocketToInterface(conn, pc.IfIndex); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("bind to interface %d: %w", pc.IfIndex, err)
+		}
 	}
 
 	p := &Path{
