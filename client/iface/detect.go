@@ -88,36 +88,52 @@ func Detect() ([]Interface, error) {
 	return result, nil
 }
 
-// Probe tests which interfaces can actually reach the bonding server.
-// Sends a UDP packet through each interface and waits for a response.
-// Returns only the interfaces that successfully round-tripped.
-func Probe(interfaces []Interface, serverAddr string, timeout time.Duration) []Interface {
+// ReachablePath is an interface paired with the server address that it
+// successfully probed against. Different interfaces may end up using different
+// server ports when one is blocked by a carrier but the other isn't.
+type ReachablePath struct {
+	Interface  Interface
+	ServerAddr string
+}
+
+// Probe tests each interface against each candidate server address, returning
+// (interface, server_addr) pairs for those that round-trip successfully. An
+// interface is probed against each server address in order and the first hit
+// wins — we don't want to duplicate traffic by running the same path against
+// multiple ports. Interfaces that can't reach any server are omitted.
+func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration) []ReachablePath {
 	type probeResult struct {
-		ifc Interface
-		ok  bool
+		ifc        Interface
+		serverAddr string
+		ok         bool
 	}
 
 	ch := make(chan probeResult, len(interfaces))
 
 	for _, ifc := range interfaces {
 		go func(ifc Interface) {
-			ok := probeOne(ifc, serverAddr, timeout)
-			ch <- probeResult{ifc: ifc, ok: ok}
+			for _, serverAddr := range serverAddrs {
+				if probeOne(ifc, serverAddr, timeout) {
+					ch <- probeResult{ifc: ifc, serverAddr: serverAddr, ok: true}
+					return
+				}
+			}
+			ch <- probeResult{ifc: ifc, ok: false}
 		}(ifc)
 	}
 
-	var reachable []Interface
+	var out []ReachablePath
 	for range interfaces {
 		r := <-ch
 		if r.ok {
-			reachable = append(reachable, r.ifc)
-			log.Printf("  [OK] %s (%s) → can reach %s", r.ifc.Name, r.ifc.Addr, serverAddr)
+			out = append(out, ReachablePath{Interface: r.ifc, ServerAddr: r.serverAddr})
+			log.Printf("  [OK] %s (%s) → can reach %s", r.ifc.Name, r.ifc.Addr, r.serverAddr)
 		} else {
-			log.Printf("  [--] %s (%s) → cannot reach server", r.ifc.Name, r.ifc.Addr)
+			log.Printf("  [--] %s (%s) → cannot reach any bonding server", r.ifc.Name, r.ifc.Addr)
 		}
 	}
 
-	return reachable
+	return out
 }
 
 // probeOne tests real round-trip connectivity for a specific interface.
