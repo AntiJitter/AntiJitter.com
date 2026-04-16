@@ -57,13 +57,32 @@ type Deduplicator struct {
 	mu      sync.Mutex
 	seen    [DedupeWindowSize]bool
 	minSeq  uint32
+	maxSeen uint32
 }
+
+// sessionRestartThreshold — if we see a seq this far below maxSeen, the
+// client has restarted and reset its sequencer. Clear state and accept
+// the packet as fresh. Needs to be large enough that reordered packets
+// within the window don't trigger a reset, but small enough to notice
+// a restart quickly. 4 * window ≈ 16k packets.
+const sessionRestartThreshold = DedupeWindowSize * 4
 
 // IsNew returns true if this sequence number hasn't been seen before.
 // Must be called for every arriving packet to advance the window.
 func (d *Deduplicator) IsNew(seq uint32) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// Detect client session restart — the client's sequencer restarts at 0
+	// on every run. Without this, the first ~4096 packets after a restart
+	// would all hit the old window and be dropped as duplicates.
+	if d.maxSeen > sessionRestartThreshold && seq+sessionRestartThreshold < d.maxSeen {
+		for i := range d.seen {
+			d.seen[i] = false
+		}
+		d.minSeq = 0
+		d.maxSeen = 0
+	}
 
 	// Packet too old — behind our window
 	if seq < d.minSeq {
@@ -85,6 +104,9 @@ func (d *Deduplicator) IsNew(seq uint32) bool {
 		return false // duplicate
 	}
 	d.seen[idx] = true
+	if seq > d.maxSeen {
+		d.maxSeen = seq
+	}
 	return true
 }
 
