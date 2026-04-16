@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 _SUBNET = ipaddress.IPv4Network("10.10.0.0/24")
 _IP_POOL = [str(ip) for ip in list(_SUBNET.hosts())[1:]]  # .2 → .254
 
-BONDING_SERVER = "game-mode.antijitter.com:4567"
+BONDING_SERVER = "178.104.168.177:4567"  # TODO: game-mode.antijitter.com once DNS is set
 DEFAULT_DATA_LIMIT_MB = 50_000  # 50 GB
 
 
