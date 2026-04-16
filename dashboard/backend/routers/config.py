@@ -38,6 +38,12 @@ _IP_POOL = [str(ip) for ip in list(_SUBNET.hosts())[1:]]  # .2 → .254
 BONDING_SERVER = "178.104.168.177:4567"  # TODO: game-mode.antijitter.com once DNS is set
 DEFAULT_DATA_LIMIT_MB = 50_000  # 50 GB
 
+# Peers we've already registered with Germany during this process's lifetime.
+# After an API restart this resets, and we re-register on the next /api/config —
+# which is idempotent (wg set replaces existing peers) and self-heals any drift
+# between the SQLite keys and the live WireGuard server.
+_registered_peers: set[str] = set()
+
 
 async def _run(cmd: str) -> str:
     proc = await asyncio.create_subprocess_shell(
@@ -125,11 +131,20 @@ async def get_config(
         # Register on Germany VPS first — if this fails we don't persist
         # keys that can't actually connect
         await _register_peer_on_bonding_server(public_key, peer_ip)
+        _registered_peers.add(public_key)
 
         sub.wireguard_private_key = private_key
         sub.wireguard_public_key = public_key
         sub.wireguard_peer_ip = peer_ip
         await db.commit()
+    elif sub.wireguard_public_key not in _registered_peers:
+        # Keys exist in DB but we haven't confirmed they're live on Germany
+        # (API restart, earlier registration failure, stale DB from before the
+        # peer API existed). Register now — wg set is idempotent.
+        await _register_peer_on_bonding_server(
+            sub.wireguard_public_key, sub.wireguard_peer_ip
+        )
+        _registered_peers.add(sub.wireguard_public_key)
 
     return {
         "wireguard": {
