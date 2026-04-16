@@ -4,8 +4,10 @@ The Windows client calls this on startup to get everything it needs:
   - WireGuard private key + peer IP (auto-provisioned if not yet set)
   - Server public key
   - Bonding server address (Germany VPS)
-  - Network paths to bond
   - 4G data limit
+
+Network interfaces are auto-detected by the client — the server doesn't
+know (or need to know) which adapters the user has.
 
 This endpoint auto-provisions WireGuard keys if the user doesn't have them yet,
 so the Windows app is fully self-configuring.
@@ -30,10 +32,6 @@ _SUBNET = ipaddress.IPv4Network("10.10.0.0/24")
 _IP_POOL = [str(ip) for ip in list(_SUBNET.hosts())[1:]]  # .2 → .254
 
 BONDING_SERVER = "game-mode.antijitter.com:4567"
-DEFAULT_PATHS = [
-    {"name": "Starlink", "local_addr": "0.0.0.0"},
-    {"name": "4G", "local_addr": "0.0.0.0"},
-]
 DEFAULT_DATA_LIMIT_MB = 50_000  # 50 GB
 
 
@@ -112,6 +110,5 @@ async def get_config(
             "allowed_ips": ["10.10.0.0/24"],
         },
         "bonding_server": BONDING_SERVER,
-        "paths": DEFAULT_PATHS,
         "data_limit_mb": DEFAULT_DATA_LIMIT_MB,
     }

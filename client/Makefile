@@ -1,52 +1,43 @@
 # AntiJitter Windows Client Build
 #
 # Prerequisites:
-#   - Go 1.22+
-#   - go-winres (for embedding Windows manifest): go install github.com/tc-hib/go-winres@latest
+#   - Go 1.22+  (https://go.dev/dl/)
+#   - Node 18+  (https://nodejs.org/)
+#   - Wails CLI: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 #
-# Build steps:
-#   make deps    — download Go modules
-#   make build   — build antijitter.exe for Windows (cross-compile OK from Linux/macOS)
+# One-time setup:
+#   make setup   — install Wails CLI + frontend deps
+#
+# Build:
+#   make build   — produce build/bin/antijitter.exe (Windows, from any OS)
+#   make dev     — live-reload dev mode (opens browser window)
 #   make clean   — remove build artifacts
 
-BINARY    = antijitter.exe
-GOFLAGS   = -ldflags="-s -w -H=windowsgui"
-GOOS      = windows
-GOARCH    = amd64
+.PHONY: all setup deps build dev clean
 
-.PHONY: all deps build embed-manifest clean
+all: build
 
-all: deps build
+# Install Wails CLI and frontend npm deps
+setup:
+	go install github.com/wailsapp/wails/v2/cmd/wails@latest
+	cd frontend && npm install
 
-# Download and verify Go module dependencies
+# Resolve Go module dependencies
 deps:
 	go mod tidy
+	cd frontend && npm install
 
-# Embed the Windows manifest + icon resource into a .syso file.
-# The .syso is automatically picked up by `go build` on Windows targets.
-# Requires: go install github.com/tc-hib/go-winres@latest
-embed-manifest:
-	go-winres simply --manifest app.manifest \
-		--product-version "1.0.0" \
-		--file-version "1.0.0" \
-		--file-description "AntiJitter Game Mode" \
-		--product-name "AntiJitter" \
-		--copyright "AntiJitter" \
-		--icon ""
-
-# Build the Windows executable.
-# -H=windowsgui hides the console window (runs as tray app only).
-# -s -w strips debug info for smaller binary.
-build: embed-manifest
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GOFLAGS) -o $(BINARY) .
+# Build the Windows .exe (cross-compiles fine from Linux/macOS)
+# Output: build/bin/antijitter.exe
+build: deps
+	wails build -platform windows/amd64
 	@echo ""
-	@echo "Built: $(BINARY)"
-	@echo "Copy $(BINARY) + antijitter-token.txt to the user's machine."
+	@echo "Built: build/bin/antijitter.exe"
+	@echo "Run as Administrator on the target Windows machine."
 
-# Build without manifest embedding (simpler, still works but no UAC prompt)
-build-simple:
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GOFLAGS) -o $(BINARY) .
-	@echo "Built: $(BINARY) (no embedded manifest — run as admin manually)"
+# Dev mode — live reload, opens in browser (no WireGuard/bonding in browser)
+dev:
+	wails dev
 
 clean:
-	rm -f $(BINARY) *.syso
+	rm -rf build/bin

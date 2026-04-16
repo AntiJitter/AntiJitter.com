@@ -1,8 +1,8 @@
 // Package api fetches the WireGuard + bonding configuration from the
 // AntiJitter API (app.antijitter.com).
 //
-// The Windows app calls FetchConfig on startup to get everything it needs:
-// WireGuard keys, bonding server address, network paths, and data limits.
+// The server provides: WireGuard keys, bonding server address, data limits.
+// Network interfaces are auto-detected by the client (iface package).
 package api
 
 import (
@@ -16,7 +16,6 @@ import (
 type AntiJitterConfig struct {
 	WireGuard     WireGuardConfig `json:"wireguard"`
 	BondingServer string          `json:"bonding_server"`
-	Paths         []PathConfig    `json:"paths"`
 	DataLimitMB   int64           `json:"data_limit_mb"`
 }
 
@@ -27,12 +26,6 @@ type WireGuardConfig struct {
 	DNS        string   `json:"dns"`         // e.g. "1.1.1.1"
 	PeerKey    string   `json:"peer_key"`    // base64 server public key
 	AllowedIPs []string `json:"allowed_ips"` // e.g. ["10.10.0.0/24"]
-}
-
-// PathConfig defines a network path for bonding.
-type PathConfig struct {
-	Name      string `json:"name"`       // "Starlink", "4G"
-	LocalAddr string `json:"local_addr"` // local IP to bind, or "0.0.0.0" for auto
 }
 
 // Client talks to the AntiJitter API.
