@@ -14,6 +14,7 @@ package bonding
 import (
 	"encoding/binary"
 	"sync"
+	"time"
 )
 
 const (
@@ -54,10 +55,11 @@ func Decode(data []byte) (seq uint32, payload []byte, ok bool) {
 // Deduplicator tracks seen sequence numbers using a sliding window.
 // Thread-safe. O(1) lookups.
 type Deduplicator struct {
-	mu      sync.Mutex
-	seen    [DedupeWindowSize]bool
-	minSeq  uint32
-	maxSeen uint32
+	mu       sync.Mutex
+	seen     [DedupeWindowSize]bool
+	minSeq   uint32
+	maxSeen  uint32
+	lastPkt  time.Time
 }
 
 // sessionRestartThreshold — if we see a seq this far below maxSeen, the
@@ -67,15 +69,34 @@ type Deduplicator struct {
 // a restart quickly. 4 * window ≈ 16k packets.
 const sessionRestartThreshold = DedupeWindowSize * 4
 
+// sessionIdleTimeout — if no packet has arrived for this long, assume the
+// client restarted and clear state. Catches the case where the previous
+// session was short (maxSeen < sessionRestartThreshold), so the seq-gap
+// check can't fire and old bits would poison the new session's low seqs.
+const sessionIdleTimeout = 10 * time.Second
+
 // IsNew returns true if this sequence number hasn't been seen before.
 // Must be called for every arriving packet to advance the window.
 func (d *Deduplicator) IsNew(seq uint32) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	// Detect client session restart — the client's sequencer restarts at 0
-	// on every run. Without this, the first ~4096 packets after a restart
-	// would all hit the old window and be dropped as duplicates.
+	now := time.Now()
+
+	// Time-based restart detection — handles short prior sessions where the
+	// seq-gap check below can't fire. Any gap this long means the client
+	// is almost certainly a fresh session starting from seq=1.
+	if !d.lastPkt.IsZero() && now.Sub(d.lastPkt) > sessionIdleTimeout {
+		for i := range d.seen {
+			d.seen[i] = false
+		}
+		d.minSeq = 0
+		d.maxSeen = 0
+	}
+	d.lastPkt = now
+
+	// Seq-gap restart detection — for fast restarts with no idle gap, after
+	// a long-running prior session (maxSeen past the threshold).
 	if d.maxSeen > sessionRestartThreshold && seq+sessionRestartThreshold < d.maxSeen {
 		for i := range d.seen {
 			d.seen[i] = false
