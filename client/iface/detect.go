@@ -143,37 +143,35 @@ func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration) 
 // the adapter has a working internet path rather than trusting Write() to
 // succeed silently while packets vanish upstream.
 func probeOne(ifc Interface, serverAddr string, timeout time.Duration) bool {
-	conn, err := bonding.DialUDPViaInterface(serverAddr, ifc.Addr, ifc.Index, timeout)
+	// Unconnected socket: avoids connect()'s route cache which can
+	// override IP_UNICAST_IF on multi-homed Windows.
+	conn, remote, err := bonding.ListenUDPViaInterface(serverAddr, ifc.Addr, ifc.Index)
 	if err != nil {
-		log.Printf("  probe %s (%s) → %s: dial failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
+		log.Printf("  probe %s (%s) → %s: listen failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
 		return false
 	}
 	defer conn.Close()
 
-	// Log the socket's actual local address — if this differs from ifc.Addr,
-	// Windows ignored the LocalAddr bind (rare, but worth surfacing).
-	if la, ok := conn.LocalAddr().(*net.UDPAddr); ok {
-		log.Printf("  probe %s (%s) → %s: socket bound to %s", ifc.Name, ifc.Addr, serverAddr, la.String())
-	}
+	log.Printf("  probe %s (%s) → %s: socket bound to %s", ifc.Name, ifc.Addr, serverAddr, conn.LocalAddr())
 
 	probe := []byte{0, 0, 0, 0, 'p', 'r', 'o', 'b', 'e'}
 	conn.SetWriteDeadline(time.Now().Add(timeout))
-	if _, err := conn.Write(probe); err != nil {
+	if _, err := conn.WriteToUDP(probe, remote); err != nil {
 		log.Printf("  probe %s (%s) → %s: write failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
 		return false
 	}
 
 	buf := make([]byte, 64)
 	conn.SetReadDeadline(time.Now().Add(timeout / 2))
-	n, err := conn.Read(buf)
+	n, _, err := conn.ReadFromUDP(buf)
 	if err != nil {
 		log.Printf("  probe %s (%s) → %s: no reply in %s, retransmitting", ifc.Name, ifc.Addr, serverAddr, timeout/2)
-		if _, werr := conn.Write(probe); werr != nil {
+		if _, werr := conn.WriteToUDP(probe, remote); werr != nil {
 			log.Printf("  probe %s (%s) → %s: retransmit write failed: %v", ifc.Name, ifc.Addr, serverAddr, werr)
 			return false
 		}
 		conn.SetReadDeadline(time.Now().Add(timeout / 2))
-		n, err = conn.Read(buf)
+		n, _, err = conn.ReadFromUDP(buf)
 		if err != nil {
 			log.Printf("  probe %s (%s) → %s: still no reply after retransmit: %v", ifc.Name, ifc.Addr, serverAddr, err)
 			return false
