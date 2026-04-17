@@ -148,7 +148,7 @@ func probeOne(ifc Interface, serverAddr string, timeout time.Duration) bool {
 	// with a specific local IP + late IP_UNICAST_IF fails on multi-homed
 	// Windows when the route table's chosen interface differs from the
 	// one owning that local IP.
-	conn, err := bonding.DialUDPViaInterface(serverAddr, ifc.Index, timeout)
+	conn, err := bonding.DialUDPViaInterface(serverAddr, ifc.Addr, ifc.Index, timeout)
 	if err != nil {
 		log.Printf("  [--] %s (%s) → dial %s failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
 		return false

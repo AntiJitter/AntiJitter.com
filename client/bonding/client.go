@@ -246,7 +246,7 @@ func (c *Client) createPath(pc PathConfig) (*Path, error) {
 	// BEFORE connect() so Windows' route lookup doesn't pick the default
 	// interface (and fail with WSAEADDRNOTAVAIL when the local IP we'd
 	// otherwise bind to doesn't match that route).
-	conn, err := DialUDPViaInterface(pc.ServerAddr, pc.IfIndex, 5*time.Second)
+	conn, err := DialUDPViaInterface(pc.ServerAddr, pc.LocalAddr, pc.IfIndex, 5*time.Second)
 	if err != nil {
 		return nil, err
 	}
