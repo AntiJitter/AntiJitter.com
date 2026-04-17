@@ -17,21 +17,46 @@ import (
 // source IP doesn't uniquely identify a route.
 const sockoptIPUnicastIf = 31
 
-// bindSocketToInterface forces the UDP socket to egress through the given
-// interface. Must be called before the first send.
+// ifIndexSockoptValue converts an interface index to the value Windows
+// expects for IP_UNICAST_IF: the 32-bit index in network byte order,
+// re-read as a host-order int.
+func ifIndexSockoptValue(ifIndex int) int {
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, uint32(ifIndex))
+	return int(binary.LittleEndian.Uint32(buf))
+}
+
+// bindSocketToInterface forces an already-created UDP socket to egress
+// through the given interface. Prefer DialUDPViaInterface for new sockets
+// — this function is kept for code paths that already have a *net.UDPConn.
 func bindSocketToInterface(conn *net.UDPConn, ifIndex int) error {
 	raw, err := conn.SyscallConn()
 	if err != nil {
 		return fmt.Errorf("get raw conn: %w", err)
 	}
-
-	// Windows requires the interface index in network byte order.
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, uint32(ifIndex))
-	value := int(binary.LittleEndian.Uint32(buf))
+	value := ifIndexSockoptValue(ifIndex)
 
 	var sockErr error
 	err = raw.Control(func(fd uintptr) {
+		sockErr = windows.SetsockoptInt(
+			windows.Handle(fd),
+			syscall.IPPROTO_IP,
+			sockoptIPUnicastIf,
+			value,
+		)
+	})
+	if err != nil {
+		return fmt.Errorf("control: %w", err)
+	}
+	return sockErr
+}
+
+// controlBindToInterface is a net.Dialer Control hook body — applies
+// IP_UNICAST_IF to the freshly-created socket before bind/connect.
+func controlBindToInterface(c syscall.RawConn, ifIndex int) error {
+	value := ifIndexSockoptValue(ifIndex)
+	var sockErr error
+	err := c.Control(func(fd uintptr) {
 		sockErr = windows.SetsockoptInt(
 			windows.Handle(fd),
 			syscall.IPPROTO_IP,

@@ -143,26 +143,17 @@ func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration) 
 // the adapter has a working internet path rather than trusting Write() to
 // succeed silently while packets vanish upstream.
 func probeOne(ifc Interface, serverAddr string, timeout time.Duration) bool {
-	localAddr, err := net.ResolveUDPAddr("udp", ifc.Addr+":0")
+	// Use the same interface-pinned dialer the bonding client uses so
+	// probe success truly reflects whether bonding will work. DialUDP
+	// with a specific local IP + late IP_UNICAST_IF fails on multi-homed
+	// Windows when the route table's chosen interface differs from the
+	// one owning that local IP.
+	conn, err := bonding.DialUDPViaInterface(serverAddr, ifc.Addr, ifc.Index, timeout)
 	if err != nil {
-		return false
-	}
-	remoteAddr, err := net.ResolveUDPAddr("udp", serverAddr)
-	if err != nil {
-		return false
-	}
-
-	conn, err := net.DialUDP("udp", localAddr, remoteAddr)
-	if err != nil {
+		log.Printf("  [--] %s (%s) → dial %s failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
 		return false
 	}
 	defer conn.Close()
-
-	if ifc.Index > 0 {
-		if err := bonding.BindSocketToInterface(conn, ifc.Index); err != nil {
-			return false
-		}
-	}
 
 	probe := []byte{0, 0, 0, 0, 'p', 'r', 'o', 'b', 'e'}
 	conn.SetWriteDeadline(time.Now().Add(timeout))
