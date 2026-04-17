@@ -2,7 +2,10 @@
 
 package bonding
 
-import "net"
+import (
+	"net"
+	"syscall"
+)
 
 // bindSocketToInterface is a no-op on non-Windows platforms — the Go
 // runtime on Linux/macOS respects the source IP for route selection well
@@ -10,6 +13,14 @@ import "net"
 // needs CAP_NET_RAW.
 func bindSocketToInterface(conn *net.UDPConn, ifIndex int) error {
 	_ = conn
+	_ = ifIndex
+	return nil
+}
+
+// controlBindToInterface mirrors the Windows Dialer.Control hook — no-op
+// on other platforms.
+func controlBindToInterface(c syscall.RawConn, ifIndex int) error {
+	_ = c
 	_ = ifIndex
 	return nil
 }

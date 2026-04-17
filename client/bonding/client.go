@@ -242,26 +242,13 @@ func (c *Client) GetDataLimitMB() int64 {
 }
 
 func (c *Client) createPath(pc PathConfig) (*Path, error) {
-	localAddr, err := net.ResolveUDPAddr("udp", pc.LocalAddr+":0")
+	// Force egress through this specific adapter via IP_UNICAST_IF, applied
+	// BEFORE connect() so Windows' route lookup doesn't pick the default
+	// interface (and fail with WSAEADDRNOTAVAIL when the local IP we'd
+	// otherwise bind to doesn't match that route).
+	conn, err := DialUDPViaInterface(pc.ServerAddr, pc.IfIndex, 5*time.Second)
 	if err != nil {
 		return nil, err
-	}
-	serverAddr, err := net.ResolveUDPAddr("udp", pc.ServerAddr)
-	if err != nil {
-		return nil, fmt.Errorf("resolve server addr %q: %w", pc.ServerAddr, err)
-	}
-	conn, err := net.DialUDP("udp", localAddr, serverAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	// Force egress through this specific adapter — otherwise Windows' route
-	// table picks the default interface and both paths hit the same uplink.
-	if pc.IfIndex > 0 {
-		if err := bindSocketToInterface(conn, pc.IfIndex); err != nil {
-			conn.Close()
-			return nil, fmt.Errorf("bind to interface %d: %w", pc.IfIndex, err)
-		}
 	}
 
 	p := &Path{
