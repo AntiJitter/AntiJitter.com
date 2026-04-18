@@ -1,7 +1,9 @@
 package bonding
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net"
 	"syscall"
 	"time"
@@ -15,28 +17,56 @@ func BindSocketToInterface(conn *net.UDPConn, ifIndex int) error {
 	return bindSocketToInterface(conn, ifIndex)
 }
 
+// ListenUDPViaInterface creates an UNCONNECTED UDP socket bound to localIP
+// on a specific OS interface. Returns the socket and the resolved server
+// address for use with WriteTo / ReadFrom.
+//
+// Unlike the connected-socket approach (DialUDP / net.Dialer.Dial), an
+// unconnected socket never calls connect(), so Windows can't cache a
+// route that disagrees with IP_UNICAST_IF. Each WriteTo goes through the
+// forced interface directly.
+//
+// We still bind to localIP so the source address in outgoing packets
+// matches the adapter (otherwise the reply can't be routed back through
+// the correct NAT).
+func ListenUDPViaInterface(serverAddr, localIP string, ifIndex int) (*net.UDPConn, *net.UDPAddr, error) {
+	remote, err := net.ResolveUDPAddr("udp", serverAddr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve %s: %w", serverAddr, err)
+	}
+
+	bindAddr := "0.0.0.0:0"
+	if localIP != "" {
+		bindAddr = localIP + ":0"
+	}
+
+	lc := net.ListenConfig{}
+	if ifIndex > 0 {
+		lc.Control = func(network, address string, c syscall.RawConn) error {
+			return controlBindToInterface(c, ifIndex)
+		}
+	}
+	pc, err := lc.ListenPacket(context.Background(), "udp", bindAddr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listen %s ifindex=%d: %w", bindAddr, ifIndex, err)
+	}
+	udp, ok := pc.(*net.UDPConn)
+	if !ok {
+		pc.Close()
+		return nil, nil, fmt.Errorf("listen returned %T, want *net.UDPConn", pc)
+	}
+
+	log.Printf("ListenUDPViaInterface: bound %s ifindex=%d remote=%s",
+		udp.LocalAddr(), ifIndex, remote)
+
+	return udp, remote, nil
+}
+
 // DialUDPViaInterface opens a connected UDP socket to serverAddr that is
 // forced to egress through the given OS interface index AND uses localIP
-// as its source address.
-//
-// On Windows we must set IP_UNICAST_IF BEFORE bind/connect — if we let
-// net.DialUDP bind+connect first and only set the socket option afterwards,
-// Windows' route lookup during connect() picks the default interface and
-// either (a) fails with WSAEADDRNOTAVAIL ("requested address is not valid
-// in its context") when we try to bind to a specific local IP on a
-// non-default interface, or (b) silently sends packets out the wrong
-// adapter. Setting IP_UNICAST_IF via a Dialer.Control hook runs the option
-// after socket() but before bind/connect, which is what we need.
-//
-// We ALSO bind to the adapter's local IP. IP_UNICAST_IF alone pins egress,
-// but Windows still uses the routing table to pick the socket's source
-// address at connect(); that can leave the socket thinking its local IP
-// is on the default adapter while packets actually leave the pinned one.
-// The server's reply then hits a different public IP and never matches
-// the socket's 4-tuple. Binding to the adapter's own IP fixes that.
-//
-// localIP may be empty, in which case the OS picks (only safe when there
-// is a single usable interface).
+// as its source address. Kept for cases where a connected socket is needed;
+// prefer ListenUDPViaInterface for multi-homed setups where connect()'s
+// route cache can fight IP_UNICAST_IF.
 func DialUDPViaInterface(serverAddr, localIP string, ifIndex int, timeout time.Duration) (*net.UDPConn, error) {
 	d := &net.Dialer{Timeout: timeout}
 	if localIP != "" {

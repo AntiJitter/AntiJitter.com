@@ -46,6 +46,7 @@ type App struct {
 	active      bool
 	bondClient  *bonding.Client
 	wgTunnel    *tunnel.Tunnel
+	hostRoutes  []iface.HostRoute
 	token       string
 	cancelStats context.CancelFunc
 
@@ -216,8 +217,15 @@ func (a *App) startGameMode() error {
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("detect interfaces: %w", err)
 	}
+
+	// Add per-adapter host routes so Windows uses the correct gateway for
+	// each adapter instead of routing everything through the lowest-metric
+	// default route.
+	hostRoutes := iface.AddHostRoutes(allIfaces, cfg.BondingServers)
+
 	reachable := iface.Probe(allIfaces, cfg.BondingServers, 8*time.Second)
 	if len(reachable) == 0 {
+		iface.RemoveHostRoutes(hostRoutes)
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("no interfaces can reach any bonding server")
 	}
@@ -262,6 +270,7 @@ func (a *App) startGameMode() error {
 	})
 	if err != nil {
 		bondClient.Stop()
+		iface.RemoveHostRoutes(hostRoutes)
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("wireguard tunnel: %w", err)
 	}
@@ -272,6 +281,7 @@ func (a *App) startGameMode() error {
 	a.active = true
 	a.bondClient = bondClient
 	a.wgTunnel = wgTunnel
+	a.hostRoutes = hostRoutes
 	a.cancelStats = cancelStats
 	a.mu.Unlock()
 
@@ -287,10 +297,12 @@ func (a *App) stopGameMode() {
 	a.mu.Lock()
 	client := a.bondClient
 	tun := a.wgTunnel
+	routes := a.hostRoutes
 	cancel := a.cancelStats
 	a.active = false
 	a.bondClient = nil
 	a.wgTunnel = nil
+	a.hostRoutes = nil
 	a.cancelStats = nil
 	a.mu.Unlock()
 
@@ -303,6 +315,7 @@ func (a *App) stopGameMode() {
 	if client != nil {
 		client.Stop()
 	}
+	iface.RemoveHostRoutes(routes)
 
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, "state-changed", false)

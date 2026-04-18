@@ -21,7 +21,8 @@ import (
 type Path struct {
 	Name       string       // e.g. "Starlink", "4G"
 	LocalAddr  string       // bind to this local IP (interface selection)
-	conn       *net.UDPConn // outbound connection to server via this interface
+	conn       *net.UDPConn // unconnected socket — use WriteTo/ReadFrom
+	serverAddr *net.UDPAddr // remote bonding server for this path
 	active     atomic.Bool
 	bytesSent  atomic.Uint64
 	packetsSent atomic.Uint64
@@ -106,7 +107,7 @@ func (c *Client) Start() error {
 			continue
 		}
 		c.paths = append(c.paths, path)
-		log.Printf("Path ready: %s via %s", path.Name, path.LocalAddr)
+		log.Printf("Path ready: %s via %s → %s", path.Name, path.LocalAddr, path.serverAddr)
 	}
 
 	if len(c.paths) == 0 {
@@ -139,7 +140,7 @@ func (c *Client) Start() error {
 				buf := make([]byte, 1500)
 				for c.running.Load() {
 					path.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-					n, err := path.conn.Read(buf)
+					n, _, err := path.conn.ReadFromUDP(buf)
 					if err != nil {
 						continue
 					}
@@ -173,7 +174,7 @@ func (c *Client) Start() error {
 			if !path.active.Load() {
 				continue
 			}
-			_, err := path.conn.Write(encoded)
+			_, err := path.conn.WriteToUDP(encoded, path.serverAddr)
 			if err != nil {
 				log.Printf("Send error on %s: %v", path.Name, err)
 				continue
@@ -242,19 +243,16 @@ func (c *Client) GetDataLimitMB() int64 {
 }
 
 func (c *Client) createPath(pc PathConfig) (*Path, error) {
-	// Force egress through this specific adapter via IP_UNICAST_IF, applied
-	// BEFORE connect() so Windows' route lookup doesn't pick the default
-	// interface (and fail with WSAEADDRNOTAVAIL when the local IP we'd
-	// otherwise bind to doesn't match that route).
-	conn, err := DialUDPViaInterface(pc.ServerAddr, pc.LocalAddr, pc.IfIndex, 5*time.Second)
+	conn, serverAddr, err := ListenUDPViaInterface(pc.ServerAddr, pc.LocalAddr, pc.IfIndex)
 	if err != nil {
 		return nil, err
 	}
 
 	p := &Path{
-		Name:      pc.Name,
-		LocalAddr: pc.LocalAddr,
-		conn:      conn,
+		Name:       pc.Name,
+		LocalAddr:  pc.LocalAddr,
+		conn:       conn,
+		serverAddr: serverAddr,
 	}
 	p.active.Store(true)
 	return p, nil
