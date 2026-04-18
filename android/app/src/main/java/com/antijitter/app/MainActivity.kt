@@ -64,11 +64,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestVpnPermission(configJson: String) {
+        android.util.Log.i("AJ.UI", "requestVpnPermission: preparing VPN")
         pendingConfigJson = configJson
         val intent = VpnService.prepare(this)
         if (intent != null) {
+            android.util.Log.i("AJ.UI", "requestVpnPermission: launching consent dialog")
             vpnPermission.launch(intent)
         } else {
+            android.util.Log.i("AJ.UI", "requestVpnPermission: already granted, starting service")
             BondingVpnService.start(this, configJson)
         }
     }
@@ -108,6 +111,8 @@ private fun AppRoot(
             email = ui.email.orEmpty(),
             status = vpnStatus,
             stats = stats,
+            busy = ui.busy,
+            error = ui.error,
             onToggle = { vm.toggleTunnel(vpnStatus) },
             onSignOut = { vm.signOut() },
         )
@@ -160,27 +165,42 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     }
 
     fun toggleTunnel(current: BondingVpnService.Status) {
+        android.util.Log.i("AJ.UI", "toggleTunnel: current=${current.state}")
         if (current.state == BondingVpnService.State.CONNECTED ||
             current.state == BondingVpnService.State.CONNECTING
         ) {
             BondingVpnService.stop(getApplication())
             return
         }
-        val token = _ui.value.token ?: return
+        val token = _ui.value.token
+        if (token == null) {
+            android.util.Log.w("AJ.UI", "toggleTunnel: no token — forcing re-login")
+            _ui.value = _ui.value.copy(busy = false, error = "Please sign in again", token = null)
+            return
+        }
         _ui.value = _ui.value.copy(busy = true, error = null)
         viewModelScope.launch {
             try {
+                android.util.Log.i("AJ.UI", "toggleTunnel: GET /api/config")
                 val cfg = api.fetchConfig(token)
+                android.util.Log.i("AJ.UI", "toggleTunnel: config OK, bonding_servers=${cfg.bonding_servers}")
                 val raw = json.encodeToString(AntiJitterConfig.serializer(), cfg)
                 _ui.value = _ui.value.copy(busy = false, startRequest = raw)
             } catch (e: ApiException) {
+                android.util.Log.w("AJ.UI", "toggleTunnel: API ${e.status}: ${e.message}")
                 if (e.status == 401) {
                     store.clear()
                     _ui.value = UiState(error = "Session expired — sign in again")
+                } else if (e.status == 403) {
+                    _ui.value = _ui.value.copy(
+                        busy = false,
+                        error = "No active subscription. Start one at antijitter.com/dashboard.",
+                    )
                 } else {
-                    _ui.value = _ui.value.copy(busy = false, error = e.message)
+                    _ui.value = _ui.value.copy(busy = false, error = "Config: ${e.message}")
                 }
             } catch (t: Throwable) {
+                android.util.Log.e("AJ.UI", "toggleTunnel: unexpected", t)
                 _ui.value = _ui.value.copy(busy = false, error = t.message ?: "Network error")
             }
         }

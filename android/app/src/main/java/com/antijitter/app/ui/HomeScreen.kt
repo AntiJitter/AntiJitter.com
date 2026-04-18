@@ -43,6 +43,8 @@ fun HomeScreen(
     email: String,
     status: BondingVpnService.Status,
     stats: BondingClient.Stats?,
+    busy: Boolean,
+    error: String?,
     onToggle: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -69,12 +71,12 @@ fun HomeScreen(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center,
         ) {
-            ToggleButton(status = status, onClick = onToggle)
+            ToggleButton(status = status, busy = busy, onClick = onToggle)
         }
 
         Spacer(Modifier.height(16.dp))
 
-        StatusLine(status = status)
+        StatusLine(status = status, busy = busy, error = error)
 
         Spacer(Modifier.height(32.dp))
 
@@ -89,16 +91,19 @@ fun HomeScreen(
 @Composable
 private fun ToggleButton(
     status: BondingVpnService.Status,
+    busy: Boolean,
     onClick: () -> Unit,
 ) {
-    val (label, color) = when (status.state) {
-        BondingVpnService.State.CONNECTED -> "Game Mode ON" to Green
-        BondingVpnService.State.CONNECTING -> "Connecting…" to Orange
-        BondingVpnService.State.FAILED -> "Try again" to Red
-        BondingVpnService.State.DISCONNECTED -> "Turn on Game Mode" to Teal
+    val (label, color) = when {
+        busy -> "Working…" to Orange
+        status.state == BondingVpnService.State.CONNECTED -> "Game Mode ON" to Green
+        status.state == BondingVpnService.State.CONNECTING -> "Connecting…" to Orange
+        status.state == BondingVpnService.State.FAILED -> "Try again" to Red
+        else -> "Turn on Game Mode" to Teal
     }
     Button(
         onClick = onClick,
+        enabled = !busy,
         colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.Black),
         shape = RoundedCornerShape(28.dp),
         modifier = Modifier.fillMaxWidth().height(72.dp),
@@ -108,13 +113,24 @@ private fun ToggleButton(
 }
 
 @Composable
-private fun StatusLine(status: BondingVpnService.Status) {
+private fun StatusLine(status: BondingVpnService.Status, busy: Boolean, error: String?) {
+    // User-facing error (from the ViewModel) takes precedence over the VPN service state text.
+    if (error != null) {
+        Text(
+            text = error,
+            color = Red,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        return
+    }
     val msg = status.message
-    val text = when (status.state) {
-        BondingVpnService.State.CONNECTED -> "Bonded paths active. Enjoy lossless gaming."
-        BondingVpnService.State.CONNECTING -> "Probing networks…"
-        BondingVpnService.State.FAILED -> msg ?: "Connection failed"
-        BondingVpnService.State.DISCONNECTED -> "Tunnel idle"
+    val text = when {
+        busy -> "Fetching your tunnel config…"
+        status.state == BondingVpnService.State.CONNECTED -> "Bonded paths active. Enjoy lossless gaming."
+        status.state == BondingVpnService.State.CONNECTING -> "Probing networks…"
+        status.state == BondingVpnService.State.FAILED -> msg ?: "Connection failed"
+        else -> "Tunnel idle"
     }
     Text(
         text = text,
