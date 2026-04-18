@@ -282,36 +282,51 @@ class BondingClient(
             protect: (DatagramSocket) -> Boolean,
             servers: List<Pair<String, Int>>,
             perTryTimeoutMs: Long = 1500L,
-        ): Pair<String, Int>? = withTimeoutOrNull(perTryTimeoutMs * servers.size + 1000L) {
+        ): Pair<String, Int>? {
             for ((host, port) in servers) {
-                val socket = DatagramSocket()
-                if (!protect(socket)) { socket.close(); continue }
-                try {
-                    network.bindSocket(socket)
-                    val addr = network.getAllByName(host).firstOrNull() ?: run { socket.close(); continue }
-                    socket.connect(InetSocketAddress(addr, port))
-                    socket.soTimeout = perTryTimeoutMs.toInt()
-                    val probe = Protocol.buildProbe()
-                    val recv = ByteArray(64)
-                    var ok = false
-                    repeat(2) {
-                        try {
-                            socket.send(DatagramPacket(probe, probe.size))
-                            val pkt = DatagramPacket(recv, recv.size)
-                            socket.receive(pkt)
-                            if (pkt.length == probe.size && recv.copyOfRange(0, pkt.length).contentEquals(probe)) {
-                                ok = true
-                                return@repeat
-                            }
-                        } catch (_: Throwable) {}
-                    }
-                    socket.close()
-                    if (ok) return@withTimeoutOrNull host to port
-                } catch (_: Throwable) {
-                    try { socket.close() } catch (_: Throwable) {}
+                val reached = withTimeoutOrNull(perTryTimeoutMs * 2 + 500L) {
+                    probeServer(network, protect, host, port, perTryTimeoutMs)
                 }
+                if (reached == true) return host to port
             }
-            null
+            return null
+        }
+
+        private suspend fun probeServer(
+            network: Network,
+            protect: (DatagramSocket) -> Boolean,
+            host: String,
+            port: Int,
+            timeoutMs: Long,
+        ): Boolean {
+            val socket = DatagramSocket()
+            if (!protect(socket)) {
+                socket.close()
+                return false
+            }
+            try {
+                network.bindSocket(socket)
+                val addr = network.getAllByName(host).firstOrNull() ?: return false
+                socket.connect(InetSocketAddress(addr, port))
+                socket.soTimeout = timeoutMs.toInt()
+                val probe = Protocol.buildProbe()
+                val recv = ByteArray(64)
+                repeat(2) {
+                    try {
+                        socket.send(DatagramPacket(probe, probe.size))
+                        val pkt = DatagramPacket(recv, recv.size)
+                        socket.receive(pkt)
+                        if (pkt.length == probe.size && recv.copyOfRange(0, pkt.length).contentEquals(probe)) {
+                            return true
+                        }
+                    } catch (_: Throwable) {}
+                }
+                return false
+            } catch (_: Throwable) {
+                return false
+            } finally {
+                try { socket.close() } catch (_: Throwable) {}
+            }
         }
     }
 }
