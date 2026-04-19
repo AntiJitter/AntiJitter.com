@@ -229,6 +229,7 @@ class BondingVpnService : VpnService() {
         // wireguard-go closes the fd in wgTurnOff.
         val ownedFd = tunFd.detachFd()
         wireguard = WireGuardTunnel.start(
+            context = applicationContext,
             name = "antijitter",
             tunFd = ownedFd,
             privateKeyBase64 = config.wireguard.private_key,

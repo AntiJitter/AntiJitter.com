@@ -1,8 +1,10 @@
 package com.antijitter.app.wg
 
+import android.content.Context
 import android.util.Base64
 import android.util.Log
 import java.lang.reflect.InvocationTargetException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Thin wrapper around the wireguard-go userspace implementation shipped in
@@ -50,6 +52,30 @@ class WireGuardTunnel private constructor(
             ).apply { isAccessible = true }
         }
 
+        // wireguard-android loads libwg-go.so inside GoBackend's constructor via
+        // SharedLibraryLoader.loadSharedLibrary(context, "wg-go"). If we never construct
+        // a GoBackend, the native methods stay unlinked and wgTurnOn throws
+        // UnsatisfiedLinkError. Construct one (throwaway) the first time we're called.
+        private val libraryLoaded = AtomicBoolean(false)
+
+        private fun ensureLibraryLoaded(context: Context) {
+            if (libraryLoaded.get()) return
+            synchronized(libraryLoaded) {
+                if (libraryLoaded.get()) return
+                try {
+                    val ctor = backendClass.getDeclaredConstructor(Context::class.java)
+                    ctor.isAccessible = true
+                    ctor.newInstance(context.applicationContext)
+                    Log.i(TAG, "libwg-go loaded via GoBackend ctor")
+                } catch (ite: InvocationTargetException) {
+                    val cause = ite.targetException ?: ite
+                    Log.e(TAG, "GoBackend ctor threw", cause)
+                    throw IllegalStateException("Failed to load libwg-go: ${cause::class.java.simpleName}: ${cause.message}", cause)
+                }
+                libraryLoaded.set(true)
+            }
+        }
+
         /**
          * Brings up a wireguard-go device wrapping [tunFd]. Caller keeps the fd
          * alive until [stop] is called; wireguard-go takes ownership of reads/writes.
@@ -58,6 +84,7 @@ class WireGuardTunnel private constructor(
          * its encrypted UDP datagrams there for the bonding client to fan out.
          */
         fun start(
+            context: Context,
             name: String,
             tunFd: Int,
             privateKeyBase64: String,
@@ -65,6 +92,7 @@ class WireGuardTunnel private constructor(
             bondingEndpoint: String,
             allowedIps: List<String>,
         ): WireGuardTunnel {
+            ensureLibraryLoaded(context)
             val settings = buildUapi(
                 privateKeyBase64 = privateKeyBase64,
                 peerPublicKeyBase64 = peerPublicKeyBase64,
