@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.NetworkCapabilities
 import android.net.VpnService
-import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -64,12 +63,14 @@ class BondingVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "onCreate")
         BondingVpnServiceStats.setProvider { bonding?.stats() }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "onStartCommand: action=${intent?.action}")
         when (intent?.action) {
             ACTION_START -> {
                 val configJson = intent.getStringExtra(EXTRA_CONFIG_JSON)
@@ -89,14 +90,20 @@ class BondingVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        stopTunnel("service destroyed")
+        Log.i(TAG, "onDestroy (state=${statusFlow.value.state})")
+        // Preserve FAILED state so the UI can show the error after the service dies.
+        val preserveFailure = statusFlow.value.state == State.FAILED
+        cleanup()
+        startJob?.cancel()
+        startJob = null
+        if (!preserveFailure) setState(State.DISCONNECTED, null)
         BondingVpnServiceStats.setProvider(null)
         scope.cancel()
         super.onDestroy()
     }
 
     override fun onRevoke() {
-        // System or another VPN preempted us.
+        Log.w(TAG, "onRevoke — system or another VPN preempted us")
         stopTunnel("revoked by system")
         super.onRevoke()
     }
@@ -106,14 +113,21 @@ class BondingVpnService : VpnService() {
             Log.w(TAG, "start requested while already starting")
             return
         }
+        Log.i(TAG, "startTunnel: state -> CONNECTING")
         setState(State.CONNECTING, null)
-        startForegroundIfNeeded()
+        try {
+            ensureChannel()
+            startForeground(NOTIF_ID, buildNotification("Connecting…", "Setting up bonded paths"))
+        } catch (t: Throwable) {
+            Log.w(TAG, "startForeground failed (continuing without notification): ${t.message}")
+        }
 
         startJob = scope.launch {
             try {
                 val config = Json { ignoreUnknownKeys = true }
                     .decodeFromString(AntiJitterConfig.serializer(), configJson)
                 doStart(config)
+                Log.i(TAG, "tunnel fully up — state -> CONNECTED")
                 setState(State.CONNECTED, null)
             } catch (t: Throwable) {
                 Log.e(TAG, "tunnel start failed", t)
@@ -230,19 +244,6 @@ class BondingVpnService : VpnService() {
     }
 
     // ---- foreground service / notifications ------------------------------
-
-    private fun startForegroundIfNeeded() {
-        ensureChannel()
-        val notification = buildNotification("Connecting…", "Setting up bonded paths")
-        val type = if (Build.VERSION.SDK_INT >= 34) {
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        } else 0
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIF_ID, notification, type)
-        } else {
-            startForeground(NOTIF_ID, notification)
-        }
-    }
 
     private fun refreshNotification() {
         val stats = bonding?.stats() ?: return
