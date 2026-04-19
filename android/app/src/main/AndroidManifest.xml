@@ -29,6 +29,7 @@
         <service
             android:name=".vpn.BondingVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="vpn"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.net.VpnService" />

@@ -45,7 +45,14 @@ class MainActivity : ComponentActivity() {
     private val vpnPermission =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
             if (res.resultCode == Activity.RESULT_OK) {
+                android.util.Log.i("AJ.UI", "VPN consent granted, starting service")
                 BondingVpnService.start(this, pendingConfigJson)
+            } else {
+                android.util.Log.w("AJ.UI", "VPN consent denied (resultCode=${res.resultCode})")
+                BondingVpnService.statusFlow.value = BondingVpnService.Status(
+                    BondingVpnService.State.FAILED,
+                    "VPN permission denied. Tap Game Mode again and allow the connection.",
+                )
             }
         }
 

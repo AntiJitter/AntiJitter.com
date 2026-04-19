@@ -6,8 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.NetworkCapabilities
 import android.net.VpnService
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -117,9 +119,17 @@ class BondingVpnService : VpnService() {
         setState(State.CONNECTING, null)
         try {
             ensureChannel()
-            startForeground(NOTIF_ID, buildNotification("Connecting…", "Setting up bonded paths"))
+            val notif = buildNotification("Connecting…", "Setting up bonded paths")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_VPN)
+            } else {
+                startForeground(NOTIF_ID, notif)
+            }
         } catch (t: Throwable) {
-            Log.w(TAG, "startForeground failed (continuing without notification): ${t.message}")
+            Log.e(TAG, "startForeground failed", t)
+            setState(State.FAILED, "Foreground start denied: ${t.message}")
+            stopSelf()
+            return
         }
 
         startJob = scope.launch {
