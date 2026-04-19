@@ -6,10 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.net.NetworkCapabilities
 import android.net.VpnService
-import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -92,13 +90,22 @@ class BondingVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        Log.i(TAG, "onDestroy (state=${statusFlow.value.state})")
-        // Preserve FAILED state so the UI can show the error after the service dies.
-        val preserveFailure = statusFlow.value.state == State.FAILED
+        val current = statusFlow.value.state
+        Log.i(TAG, "onDestroy (state=$current)")
         cleanup()
         startJob?.cancel()
         startJob = null
-        if (!preserveFailure) setState(State.DISCONNECTED, null)
+        when (current) {
+            // Preserve existing error so the UI can show why we died.
+            State.FAILED -> { /* keep */ }
+            // If we were still CONNECTING, the system killed us before we
+            // finished. Don't hide it — surface it.
+            State.CONNECTING -> setState(
+                State.FAILED,
+                "VPN service terminated before the tunnel came up (check battery / app standby).",
+            )
+            else -> setState(State.DISCONNECTED, null)
+        }
         BondingVpnServiceStats.setProvider(null)
         scope.cancel()
         super.onDestroy()
@@ -119,12 +126,8 @@ class BondingVpnService : VpnService() {
         setState(State.CONNECTING, null)
         try {
             ensureChannel()
-            val notif = buildNotification("Connecting…", "Setting up bonded paths")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST)
-            } else {
-                startForeground(NOTIF_ID, notif)
-            }
+            // VpnService is auto-classified as type=vpn by Android; no type arg needed.
+            startForeground(NOTIF_ID, buildNotification("Connecting…", "Setting up bonded paths"))
         } catch (t: Throwable) {
             Log.e(TAG, "startForeground failed", t)
             setState(State.FAILED, "Foreground start denied: ${t.message}")
