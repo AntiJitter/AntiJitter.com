@@ -2,6 +2,7 @@ package com.antijitter.app.wg
 
 import android.util.Base64
 import android.util.Log
+import java.lang.reflect.InvocationTargetException
 
 /**
  * Thin wrapper around the wireguard-go userspace implementation shipped in
@@ -73,11 +74,21 @@ class WireGuardTunnel private constructor(
 
             val handle = try {
                 wgTurnOnMethod.invoke(null, name, tunFd, settings) as Int
+            } catch (ite: InvocationTargetException) {
+                // The real JNI error lives on the wrapped cause.
+                val cause = ite.targetException ?: ite
+                Log.e(TAG, "wgTurnOn threw", cause)
+                val kind = cause::class.java.simpleName
+                val msg = cause.message ?: "(no message)"
+                throw IllegalStateException("wgTurnOn $kind: $msg", cause)
             } catch (t: Throwable) {
-                throw IllegalStateException("wgTurnOn JNI call failed: ${t.message}", t)
+                Log.e(TAG, "wgTurnOn reflective invoke failed", t)
+                val kind = t::class.java.simpleName
+                val msg = t.message ?: "(no message)"
+                throw IllegalStateException("wgTurnOn $kind: $msg", t)
             }
             if (handle < 0) {
-                throw IllegalStateException("wgTurnOn returned $handle (failed)")
+                throw IllegalStateException("wgTurnOn returned $handle — see logcat for wireguard-go error")
             }
             Log.i(TAG, "tunnel up: $name (handle=$handle endpoint=$bondingEndpoint)")
             return WireGuardTunnel(handle, name)

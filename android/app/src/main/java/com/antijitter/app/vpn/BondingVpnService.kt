@@ -225,9 +225,12 @@ class BondingVpnService : VpnService() {
             throw IllegalStateException("No bonding paths reachable")
         }
 
+        // Detach so wireguard-go owns the fd; the PFD we kept for reference is now empty.
+        // wireguard-go closes the fd in wgTurnOff.
+        val ownedFd = tunFd.detachFd()
         wireguard = WireGuardTunnel.start(
             name = "antijitter",
-            tunFd = tunFd.fd,
+            tunFd = ownedFd,
             privateKeyBase64 = config.wireguard.private_key,
             peerPublicKeyBase64 = config.wireguard.peer_key,
             bondingEndpoint = "127.0.0.1:$bondingPort",
