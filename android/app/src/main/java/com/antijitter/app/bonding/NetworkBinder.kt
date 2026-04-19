@@ -19,6 +19,30 @@ class NetworkBinder(context: Context) {
     private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val callbacks = mutableListOf<ConnectivityManager.NetworkCallback>()
 
+    /**
+     * Persistently watches [transport]. Each time the system reports a matching network as
+     * available or lost, [listener] is notified. Unlike [acquire], this never unregisters on
+     * its own — call [releaseAll] to tear everything down.
+     */
+    fun monitor(transport: Int, listener: PathListener) {
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .addTransportType(transport)
+            .build()
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { listener.onAvailable(network) }
+            override fun onLost(network: Network) { listener.onLost(network) }
+        }
+        cm.requestNetwork(request, cb)
+        synchronized(callbacks) { callbacks += cb }
+    }
+
+    interface PathListener {
+        fun onAvailable(network: Network)
+        fun onLost(network: Network)
+    }
+
     /** Returns the requested network when it becomes available, or null on timeout. */
     suspend fun acquire(transport: Int, timeoutMs: Long = 5000): Network? {
         val deferred = CompletableDeferred<Network?>()

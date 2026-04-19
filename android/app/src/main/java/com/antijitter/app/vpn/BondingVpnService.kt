@@ -25,7 +25,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * VPN backbone for the AntiJitter Android client.
@@ -165,17 +165,6 @@ class BondingVpnService : VpnService() {
         val servers = config.bonding_servers.mapNotNull(::parseHostPort)
         require(servers.isNotEmpty()) { "config.bonding_servers empty or malformed" }
 
-        // Acquire networks in parallel — cellular often takes longer to register.
-        val wifiDeferred = scope.async { nb.acquire(NetworkCapabilities.TRANSPORT_WIFI) }
-        val cellDeferred = scope.async { nb.acquire(NetworkCapabilities.TRANSPORT_CELLULAR) }
-        val wifi = wifiDeferred.await()
-        val cell = cellDeferred.await()
-
-        if (wifi == null && cell == null) {
-            throw IllegalStateException("No Wi-Fi or cellular network available")
-        }
-        Log.i(TAG, "networks: wifi=${wifi != null} cellular=${cell != null}")
-
         // Build the TUN before we start userspace WireGuard.
         val ipParts = config.wireguard.address.split("/")
         val ip = ipParts[0]
@@ -202,27 +191,20 @@ class BondingVpnService : VpnService() {
         val bondingPort = client.startLocalListener()
         client.setDataLimit(config.data_limit_mb)
 
-        var pathsAdded = 0
-        if (wifi != null) {
-            val pick = BondingClient.pickReachableServer(wifi, ::protect, servers)
-            if (pick != null) {
-                val ok = client.addPath("Wi-Fi", wifi, pick.first, pick.second, isCellular = false)
-                if (ok) pathsAdded++
-            } else {
-                Log.w(TAG, "Wi-Fi: no bonding server reachable")
-            }
+        // Register persistent monitors per transport. onAvailable adds or replaces the path;
+        // onLost removes it. This is what makes Wi-Fi / cellular drops auto-recover without
+        // requiring the user to toggle Game Mode off and on.
+        startPathMonitor(nb, client, servers, NetworkCapabilities.TRANSPORT_WIFI, "Wi-Fi", isCellular = false)
+        startPathMonitor(nb, client, servers, NetworkCapabilities.TRANSPORT_CELLULAR, "Cellular", isCellular = true)
+
+        // Wait up to 8s for at least one path to become active before we bring up WireGuard.
+        // Otherwise the tunnel would come up with zero paths and drop every packet.
+        val deadline = System.currentTimeMillis() + 8000L
+        while (client.stats().paths.none { it.active } && System.currentTimeMillis() < deadline) {
+            delay(200)
         }
-        if (cell != null) {
-            val pick = BondingClient.pickReachableServer(cell, ::protect, servers)
-            if (pick != null) {
-                val ok = client.addPath("Cellular", cell, pick.first, pick.second, isCellular = true)
-                if (ok) pathsAdded++
-            } else {
-                Log.w(TAG, "Cellular: no bonding server reachable")
-            }
-        }
-        if (pathsAdded == 0) {
-            throw IllegalStateException("No bonding paths reachable")
+        if (client.stats().paths.none { it.active }) {
+            throw IllegalStateException("No bonding paths reachable after 8s (check Wi-Fi / cellular)")
         }
 
         // Detach so wireguard-go owns the fd; the PFD we kept for reference is now empty.
@@ -245,6 +227,46 @@ class BondingVpnService : VpnService() {
                 refreshNotification()
             }
         }
+    }
+
+    private fun startPathMonitor(
+        nb: NetworkBinder,
+        client: BondingClient,
+        servers: List<Pair<String, Int>>,
+        transport: Int,
+        name: String,
+        isCellular: Boolean,
+    ) {
+        val inFlight = AtomicBoolean(false)
+        nb.monitor(transport, object : NetworkBinder.PathListener {
+            override fun onAvailable(network: android.net.Network) {
+                if (inFlight.getAndSet(true)) {
+                    Log.i(TAG, "$name: onAvailable — rebuild already in progress, skipping")
+                    return
+                }
+                scope.launch {
+                    try {
+                        // Drop any stale path with this name regardless of Network — the new
+                        // one supersedes it.
+                        client.removePath(name)
+                        val pick = BondingClient.pickReachableServer(network, ::protect, servers)
+                        if (pick == null) {
+                            Log.w(TAG, "$name: no bonding server reachable via new network")
+                            return@launch
+                        }
+                        val ok = client.addPath(name, network, pick.first, pick.second, isCellular)
+                        if (ok) Log.i(TAG, "$name: path (re)joined via ${pick.first}:${pick.second}")
+                        else Log.w(TAG, "$name: addPath failed")
+                    } finally {
+                        inFlight.set(false)
+                    }
+                }
+            }
+            override fun onLost(network: android.net.Network) {
+                Log.i(TAG, "$name: onLost — removing path if it still matches this Network")
+                client.removePath(name, network)
+            }
+        })
     }
 
     private fun stopTunnel(reason: String) {

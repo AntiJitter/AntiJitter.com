@@ -117,6 +117,27 @@ class BondingClient(
         return true
     }
 
+    /**
+     * Removes the path registered as [name]. If [network] is non-null, only removes when the
+     * stored path's Network matches — lets onLost callbacks safely ignore stale events that
+     * arrive after a newer Network has already replaced the slot.
+     */
+    fun removePath(name: String, network: Network? = null) {
+        val removed = synchronized(pathsLock) {
+            val idx = paths.indexOfFirst { p ->
+                p.name == name && (network == null || p.network == network)
+            }
+            if (idx < 0) null else paths.removeAt(idx)
+        }
+        if (removed != null) {
+            removed.active = false
+            try { removed.socket.close() } catch (_: Throwable) {}
+            Log.i(TAG, "${removed.name}: path removed")
+        }
+    }
+
+    fun hasPath(name: String): Boolean = synchronized(pathsLock) { paths.any { it.name == name } }
+
     private fun probe(socket: DatagramSocket): Boolean {
         val probeBytes = Protocol.buildProbe()
         val recv = ByteArray(64)
