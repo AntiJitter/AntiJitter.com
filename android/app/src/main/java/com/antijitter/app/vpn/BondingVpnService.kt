@@ -121,7 +121,7 @@ class BondingVpnService : VpnService() {
             ensureChannel()
             val notif = buildNotification("Connecting…", "Setting up bonded paths")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_VPN)
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST)
             } else {
                 startForeground(NOTIF_ID, notif)
             }
