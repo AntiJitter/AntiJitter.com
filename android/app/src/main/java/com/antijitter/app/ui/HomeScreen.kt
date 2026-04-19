@@ -157,11 +157,18 @@ private fun StatsCard(stats: BondingClient.Stats) {
         }
         Spacer(Modifier.height(12.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatBlock("Sent", "${stats.totalBytesUp / 1024 / 1024} MB")
-            StatBlock("Received", "${stats.totalBytesDown / 1024 / 1024} MB")
-            StatBlock("Cellular", "${stats.cellularBytesUp / 1024 / 1024} MB")
+            StatBlock("Sent", formatBytes(stats.totalBytesUp))
+            StatBlock("Received", formatBytes(stats.totalBytesDown))
+            StatBlock("Cellular", formatBytes(stats.cellularBytesUp))
         }
     }
+}
+
+private fun formatBytes(b: Long): String = when {
+    b < 1024L -> "$b B"
+    b < 1024L * 1024 -> "${b / 1024} KB"
+    b < 1024L * 1024 * 1024 -> String.format("%.1f MB", b / 1024.0 / 1024.0)
+    else -> String.format("%.2f GB", b / 1024.0 / 1024.0 / 1024.0)
 }
 
 @Composable
