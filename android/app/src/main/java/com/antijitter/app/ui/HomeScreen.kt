@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,6 +49,10 @@ fun HomeScreen(
     error: String?,
     onToggle: () -> Unit,
     onSignOut: () -> Unit,
+    // BEGIN DEV-TOGGLE (route-all) — remove for production
+    routeAllTraffic: Boolean,
+    onRouteAllTrafficChange: (Boolean) -> Unit,
+    // END DEV-TOGGLE
 ) {
     Column(
         modifier = Modifier
@@ -85,8 +91,51 @@ fun HomeScreen(
         } else {
             HelpCard()
         }
+
+        // BEGIN DEV-TOGGLE (route-all) — remove for production
+        Spacer(Modifier.height(16.dp))
+        DevRouteAllRow(
+            enabled = routeAllTraffic,
+            onChange = onRouteAllTrafficChange,
+            tunnelActive = status.state == BondingVpnService.State.CONNECTED ||
+                status.state == BondingVpnService.State.CONNECTING,
+        )
+        // END DEV-TOGGLE
     }
 }
+
+// BEGIN DEV-TOGGLE (route-all) — remove for production
+@Composable
+private fun DevRouteAllRow(
+    enabled: Boolean,
+    onChange: (Boolean) -> Unit,
+    tunnelActive: Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Surface)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("DEV: route ALL traffic", color = White, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                if (tunnelActive) "Applies on next Game Mode toggle — turn off then on."
+                else "Sends every packet through Germany (for speedtest.net checks).",
+                color = Dim,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Switch(
+            checked = enabled,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(checkedTrackColor = Teal),
+        )
+    }
+}
+// END DEV-TOGGLE
 
 @Composable
 private fun ToggleButton(

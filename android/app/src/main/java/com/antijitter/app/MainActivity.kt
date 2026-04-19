@@ -122,6 +122,10 @@ private fun AppRoot(
             error = ui.error,
             onToggle = { vm.toggleTunnel(vpnStatus) },
             onSignOut = { vm.signOut() },
+            // BEGIN DEV-TOGGLE (route-all) — remove for production
+            routeAllTraffic = ui.routeAllTraffic,
+            onRouteAllTrafficChange = { vm.setRouteAllTraffic(it) },
+            // END DEV-TOGGLE
         )
     }
 }
@@ -189,8 +193,14 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 android.util.Log.i("AJ.UI", "toggleTunnel: GET /api/config")
-                val cfg = api.fetchConfig(token)
-                android.util.Log.i("AJ.UI", "toggleTunnel: config OK, bonding_servers=${cfg.bonding_servers}")
+                val fetched = api.fetchConfig(token)
+                android.util.Log.i("AJ.UI", "toggleTunnel: config OK, bonding_servers=${fetched.bonding_servers}")
+                // BEGIN DEV-TOGGLE (route-all) — remove for production
+                val cfg = if (_ui.value.routeAllTraffic) {
+                    android.util.Log.w("AJ.UI", "DEV: routing ALL traffic through the tunnel")
+                    fetched.copy(wireguard = fetched.wireguard.copy(allowed_ips = listOf("0.0.0.0/0")))
+                } else fetched
+                // END DEV-TOGGLE
                 val raw = json.encodeToString(AntiJitterConfig.serializer(), cfg)
                 _ui.value = _ui.value.copy(busy = false, startRequest = raw)
             } catch (e: ApiException) {
@@ -217,6 +227,12 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         _ui.value = _ui.value.copy(startRequest = null)
     }
 
+    // BEGIN DEV-TOGGLE (route-all) — remove for production
+    fun setRouteAllTraffic(enabled: Boolean) {
+        _ui.value = _ui.value.copy(routeAllTraffic = enabled)
+    }
+    // END DEV-TOGGLE
+
     fun refreshStats() {
         // Reach into the running service via the singleton flow — simple approach for one-tunnel app.
         _stats.value = BondingVpnServiceStats.snapshot()
@@ -228,6 +244,9 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         val busy: Boolean = false,
         val error: String? = null,
         val startRequest: String? = null,
+        // BEGIN DEV-TOGGLE (route-all) — remove for production
+        val routeAllTraffic: Boolean = false,
+        // END DEV-TOGGLE
     )
 }
 
