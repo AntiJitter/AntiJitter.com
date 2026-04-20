@@ -95,16 +95,22 @@ func main() {
 
 	clients := &sync.Map{}
 	stats := &serverStats{}
+	replySeq := &bonding.Sequencer{}
 
-	// Goroutine: read replies from WireGuard → send back via the client's primary path's listener
+	// Goroutine: read replies from WireGuard → prepend a seq header → send back via
+	// the client's primary path's listener. The client's runReplyLoop expects the
+	// same [4-byte seq][payload] wire format for both directions; without the
+	// header it strips 4 bytes of real WG ciphertext and the handshake silently
+	// fails forever.
 	go func() {
-		buf := make([]byte, bonding.MaxPacketSize)
+		payload := make([]byte, bonding.MaxPacketSize)
 		for {
-			n, err := wgConn.Read(buf)
+			n, err := wgConn.Read(payload)
 			if err != nil {
 				log.Printf("WG read error: %v", err)
 				continue
 			}
+			framed := bonding.Encode(replySeq.Next(), payload[:n])
 
 			clients.Range(func(_, v any) bool {
 				cs := v.(*clientState)
@@ -112,7 +118,7 @@ func main() {
 				primary := cs.primary
 				cs.mu.RUnlock()
 				if primary != nil && primary.conn != nil {
-					primary.conn.WriteToUDP(buf[:n], primary.addr)
+					primary.conn.WriteToUDP(framed, primary.addr)
 				}
 				return true
 			})

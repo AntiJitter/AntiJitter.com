@@ -25,9 +25,17 @@ dashboard/frontend/dist-electron/
 release/
 out/
 
-# ── Android (Capacitor) ──────────────────────────────────────────────────────
-android/
+# ── iOS (Capacitor leftover) ────────────────────────────────────────────────
 ios/
+
+# ── Native Android build artifacts (source lives in android/) ───────────────
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/app/*.iml
 
 # ── OS / editor ─────────────────────────────────────────────────────────────
 .DS_Store

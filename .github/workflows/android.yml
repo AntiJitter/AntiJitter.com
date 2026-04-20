@@ -1,0 +1,63 @@
+name: Android APK
+
+# Builds a debug APK on every push to the android branch and publishes it as
+# a GitHub Release asset with the floating tag `android-latest`, so the phone
+# has a stable download URL. Also uploads the APK as a workflow artifact.
+
+on:
+  push:
+    branches:
+      - claude/antijitter-android-app-8FaR5
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: antijitter-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Publish APK to GitHub Release (tag android-latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: AntiJitter Android (latest debug build)
+          body: |
+            Auto-built debug APK from ${{ github.sha }}.
+
+            **Install on phone**: open the APK link below in Chrome on your
+            Android device, tap to download, then tap the file to install.
+            Android will prompt once to allow Chrome to install unknown apps.
+          prerelease: true
+          make_latest: false
+          files: android/app/build/outputs/apk/debug/app-debug.apk
