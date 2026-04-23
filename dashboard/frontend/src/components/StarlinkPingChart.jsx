@@ -205,19 +205,15 @@ export default function StarlinkPingChart({ samples }) {
     <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "20px 24px" }}>
 
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-        <div>
-          <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--white)", margin: 0 }}>
-            Starlink Latency
-          </h3>
-          <p style={{ fontSize: 12, color: "var(--dim)", marginTop: 4, marginBottom: 0 }}>
-            {bucketed
-              ? "Showing percentile bands per interval — orange = p75, teal = p25"
-              : "Measured from your browser every 2 s"}
-          </p>
-        </div>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        gap: 12, flexWrap: "wrap", marginBottom: 6,
+      }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--white)", margin: 0 }}>
+          Starlink Latency
+        </h3>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginLeft: "auto" }}>
           <div style={{ display: "flex", gap: 4 }}>
             {TIME_WINDOWS.map(({ label, minutes }) => (
               <button key={label} onClick={() => setWindowMin(minutes)} style={{
@@ -241,37 +237,62 @@ export default function StarlinkPingChart({ samples }) {
         </div>
       </div>
 
-      {/* Stats */}
-      {stats && (
-        <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
-          <StatPill label={bucketed ? "Median" : "Avg"} value={`${stats.avg} ms`} />
-          <StatPill
-            label="Jitter"
-            value={`±${stats.jitter} ms`}
-            color={stats.jitter > 15 ? "var(--orange)" : "var(--white)"}
-          />
-          {!bucketed && (
-            <StatPill
-              label="Handoffs"
-              value={stats.handoffs}
-              color={stats.handoffs > 0 ? "var(--red)" : "var(--dim)"}
-            />
-          )}
-          <StatPill label="Samples" value={stats.samples.toLocaleString()} />
-        </div>
-      )}
+      <p style={{ fontSize: 11, color: "var(--dim)", margin: "0 0 12px 0" }}>
+        {bucketed
+          ? "Showing percentile bands per interval — orange = p75, teal = p25"
+          : "Measured from your browser every 2 s"}
+      </p>
 
-      {/* Legend */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
-        <LegendItem color="#ff9f0a" label={bucketed ? "Starlink (p75)" : "Starlink"} />
-        <LegendItem color="var(--teal)" label={bucketed ? "Game Mode (p25)" : "With Game Mode"} dashed />
-        {!bucketed && stats?.handoffs > 0 && (
-          <span style={{ fontSize: 11, color: "#ff453a", display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ display: "inline-block", width: 12, borderTop: "1.5px dashed #ff453a" }} />
-            Satellite handoff
-          </span>
-        )}
-      </div>
+      {/* Stats */}
+      {stats && (() => {
+        const lowConfidence = stats.samples < 8;
+        const linesOverlap = !bucketed && data.length > 0 && data.every(
+          (d) => Math.abs(d.starlink - d.gameMode) < 0.05,
+        );
+        return (
+          <>
+            <div style={{ display: "flex", gap: 20, marginBottom: 6, flexWrap: "wrap" }}>
+              <StatPill label={bucketed ? "Median" : "Avg"} value={`${stats.avg} ms`} />
+              <StatPill
+                label="Jitter"
+                value={lowConfidence ? "—" : `±${stats.jitter} ms`}
+                color={lowConfidence ? "var(--dim)" : (stats.jitter > 15 ? "var(--orange)" : "var(--white)")}
+              />
+              {!bucketed && (
+                <StatPill
+                  label="Handoffs"
+                  value={stats.handoffs}
+                  color={stats.handoffs > 0 ? "var(--red)" : "var(--dim)"}
+                />
+              )}
+              <StatPill label="Samples" value={stats.samples.toLocaleString()} />
+            </div>
+            {lowConfidence && (
+              <p style={{ fontSize: 11, color: "var(--dim)", margin: "0 0 10px 0", fontStyle: "italic" }}>
+                Collecting samples — jitter shown once we have at least 8.
+              </p>
+            )}
+
+            {/* Legend */}
+            <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
+              <LegendItem color="#ff9f0a" label={bucketed ? "Starlink (p75)" : "Starlink"} />
+              <LegendItem color="var(--teal)" label={bucketed ? "Game Mode (p25)" : "With Game Mode"} dashed />
+              {!bucketed && stats?.handoffs > 0 && (
+                <span style={{ fontSize: 11, color: "#ff453a", display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ display: "inline-block", width: 12, borderTop: "1.5px dashed #ff453a" }} />
+                  Satellite handoff
+                </span>
+              )}
+            </div>
+
+            {linesOverlap && !lowConfidence && (
+              <p style={{ fontSize: 11, color: "var(--dim)", margin: "0 0 8px 0", fontStyle: "italic" }}>
+                Lines overlap when there are no spikes — Game Mode diverges during latency peaks.
+              </p>
+            )}
+          </>
+        );
+      })()}
 
       {data.length === 0 ? (
         <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--dim)", fontSize: 13 }}>

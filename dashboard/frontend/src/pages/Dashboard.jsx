@@ -83,7 +83,7 @@ export default function Dashboard() {
               transition: "background 0.3s",
             }} />
             <span style={{ fontSize: 12, color: "var(--dim)" }}>
-              {connected ? "Live" : "Reconnecting…"}
+              {connected ? "Connected" : "Reconnecting…"}
             </span>
           </div>
 
@@ -142,6 +142,7 @@ export default function Dashboard() {
                 totalFailovers={status?.total_failovers}
                 uptimeSeconds={status?.uptime_seconds}
                 isSubscribed={isSubscribed}
+                starlinkSamples={pingSamples}
               />
             </div>
 
