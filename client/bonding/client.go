@@ -144,8 +144,13 @@ func (c *Client) Start() error {
 					if err != nil {
 						continue
 					}
+					if n <= headerSize {
+						continue
+					}
+					// Strip the 4-byte seq header the server now prepends
+					payload := buf[headerSize:n]
 					if wgClientAddr != nil {
-						c.localConn.WriteToUDP(buf[:n], wgClientAddr)
+						c.localConn.WriteToUDP(payload, wgClientAddr)
 					}
 				}
 			}(p)
