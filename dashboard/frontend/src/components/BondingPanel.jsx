@@ -155,7 +155,7 @@ export default function BondingPanel({ bonded, packetsRouted, totalFailovers, up
           <div style={{ borderTop: "1px solid rgba(0,200,215,0.15)", marginTop: 14, paddingTop: 14 }}>
             <SmallStat label="Uptime"          value={uptime} />
             <SmallStat label="Packets routed"  value={packetsRouted != null ? packetsRouted.toLocaleString() : "—"} />
-            <SmallStat label="Failovers caught" value={totalFailovers ?? "—"} />
+            <SmallStat label="Seamless failovers" value={totalFailovers ?? "—"} />
           </div>
         </>
       )}

@@ -68,6 +68,19 @@ Avoid the word "Live" in two places at once. Use:
 - When locked (no subscription): blurred preview + "$5/mo" pill + "Unlock" CTA.
 - **Delta badge**: when both `bonded.latency_ms` and the chart's Starlink baseline exist, show a small pill under the latency: `−Δ ms vs Starlink alone`. Teal text on translucent teal background.
 
+## Terminology
+
+Use these phrases consistently across web, Android, marketing, and notifications. Stick to the Speedify-style wording — the user already knows it, and inventing new terms makes the value harder to grasp.
+
+| Concept | Use this | Don't use |
+|---|---|---|
+| One UDP packet duplicated across paths and the dupe dropped on arrival | (don't expose to user) | "packets saved", "redundant packets" |
+| A moment when one path dropped and the tunnel kept going on the other(s) | **Seamless failover** | "failover caught", "outage avoided", "connection rescued" |
+| The combined Wi-Fi + cellular tunnel | **Bonded connection** / **Game Mode** | "VPN", "tunnel" (in user copy) |
+| Each underlying network (Wi-Fi, cellular, Starlink) | **Path** | "interface", "link" |
+| A network handing off (cell tower change, Starlink satellite swap) | **Handoff** | "switch", "drop" |
+| Latency variance | **Jitter** | "ping variation" |
+
 ## Components Android needs (Compose translations)
 
 | React component | Android equivalent | Status |
@@ -89,3 +102,4 @@ Track every change here so the Android port is a translation, not a redesign.
 - Added "lines overlap when no spikes" explainer to chart legend.
 - Added `−Δ ms vs Starlink alone` delta pill on BondingPanel when both stats exist.
 - Subtitle under `Starlink Latency` moved below the controls row on narrow viewports (no longer stacked next to title on mobile).
+- BondingPanel small stat `Failovers caught` → `Seamless failovers` (Speedify-style framing). Added Terminology table to lock this and other phrasing across surfaces.
