@@ -167,3 +167,11 @@ Track every change here so the Android port is a translation, not a redesign.
 - New `SessionSummaryCard` carries Sent / Received / Cellular used / Seamless failovers in a label-value layout matching the dashboard's small-stat strip.
 - Removed the "How it works" `HelpCard` from the main screen — to be moved to a future Settings → About link.
 - DEV route-all toggle stays at the bottom, anchored with the same `BEGIN/END DEV-TOGGLE` comment markers for easy removal.
+
+### 2026-04-23 — Dashboard parity pass
+Brings the web in line with the Android visual rhythm. Same card shapes, same density, same labels.
+
+- New `ActivePathsCard` component on the dashboard: one tight panel with one-liner rows per path (`[● dot] [name] [Latency] [Loss] [Signal]`). Replaces the previous trio of full-width `ConnectionCard`s sitting side-by-side. Same component contract as Android's `ActivePathsCard`.
+- Live row layout switched from `display:flex flexWrap:wrap` to a 2-column `grid` (`1fr 320px`) so the paths panel and the Game Mode panel sit at consistent widths instead of reflowing unpredictably with 3+ children.
+- Added `pathsFromConns` filter — paths reporting `status: "inactive"` are hidden so we don't render a 5G card when the device is on 4G. Speedify shows everything regardless; we only show what's actually carrying traffic.
+- Old `ConnectionCard.jsx` left in place but unused — keep for a future per-path detail drilldown.
