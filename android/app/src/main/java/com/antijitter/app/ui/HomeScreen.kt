@@ -1,11 +1,14 @@
 package com.antijitter.app.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,8 +17,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -26,12 +31,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antijitter.app.bonding.BondingClient
 import com.antijitter.app.bonding.LatencyMonitor
+import com.antijitter.app.ui.theme.Black
 import com.antijitter.app.ui.theme.Border
 import com.antijitter.app.ui.theme.Dim
 import com.antijitter.app.ui.theme.Green
@@ -42,31 +50,6 @@ import com.antijitter.app.ui.theme.Teal
 import com.antijitter.app.ui.theme.White
 import com.antijitter.app.vpn.BondingVpnService
 
-/**
- * Layout (Speedify-inspired, AntiJitter palette):
- *
- *   ┌──────────────────────────────────────┐
- *   │ AntíJitter             Sign out      │   header
- *   ├──────────────────────────────────────┤
- *   │  Game Mode             ─ • ─  on/off │   top-bar toggle
- *   │  Bonded paths active                 │
- *   ├──────────────────────────────────────┤
- *   │           — ms                       │   hero bonded latency
- *   │     −Δ ms vs Wi-Fi alone             │
- *   ├──────────────────────────────────────┤
- *   │ ACTIVE PATHS                         │
- *   │ ● Wi-Fi      3.2 MB sent             │   one-liner per path
- *   │ ● Cellular   1.4 MB sent             │
- *   ├──────────────────────────────────────┤
- *   │ Sent                  4.6 MB         │
- *   │ Received             82.1 MB         │
- *   │ Cellular used         1.4 MB         │
- *   │ Seamless failovers        —          │
- *   └──────────────────────────────────────┘
- *
- * Latency / jitter / packet loss show "—" until the bonding client measures
- * them via probe RTTs (next backend pass). All other numbers are wired up.
- */
 @Composable
 fun HomeScreen(
     email: String,
@@ -79,111 +62,223 @@ fun HomeScreen(
     error: String?,
     onToggle: () -> Unit,
     onSignOut: () -> Unit,
-    // BEGIN DEV-TOGGLE (route-all) — remove for production
+    // BEGIN DEV-TOGGLE (route-all) - remove for production
     routeAllTraffic: Boolean,
     onRouteAllTrafficChange: (Boolean) -> Unit,
     // END DEV-TOGGLE
 ) {
-    Column(
+    val tunnelActive = status.state == BondingVpnService.State.CONNECTED ||
+        status.state == BondingVpnService.State.CONNECTING
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .background(Black),
     ) {
-        Header(email = email, onSignOut = onSignOut)
-        GameModeToggleBar(status = status, busy = busy, error = error, onToggle = onToggle)
-        ModeSelectorCard(selected = tunnelMode, onSelect = onTunnelModeChange)
-        HeroLatencyCard(status = status, pathLatency = pathLatency)
-        ActivePathsCard(bondedPaths = stats?.paths.orEmpty(), pathLatency = pathLatency)
-        if (stats != null) {
-            SessionSummaryCard(stats)
-        }
-        // BEGIN DEV-TOGGLE (route-all) — remove for production
-        DevRouteAllRow(
-            enabled = routeAllTraffic,
-            onChange = onRouteAllTrafficChange,
-            tunnelActive = status.state == BondingVpnService.State.CONNECTED ||
-                status.state == BondingVpnService.State.CONNECTING,
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(250.dp)
+                .background(
+                    Brush.verticalGradient(
+                        0f to Teal.copy(alpha = if (tunnelActive) 0.18f else 0.10f),
+                        0.58f to Color(0xFF0E1718).copy(alpha = 0.28f),
+                        1f to Color.Transparent,
+                    ),
+                ),
         )
-        // END DEV-TOGGLE
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Header(email = email, status = status, onSignOut = onSignOut)
+            HeroConnectionCard(
+                status = status,
+                busy = busy,
+                error = error,
+                pathLatency = pathLatency,
+                onToggle = onToggle,
+            )
+            ModeSelectorCard(selected = tunnelMode, onSelect = onTunnelModeChange)
+            ActivePathsCard(bondedPaths = stats?.paths.orEmpty(), pathLatency = pathLatency)
+            SessionSummaryCard(stats = stats)
+            // BEGIN DEV-TOGGLE (route-all) - remove for production
+            DevRouteAllRow(
+                enabled = routeAllTraffic,
+                onChange = onRouteAllTrafficChange,
+                tunnelActive = tunnelActive,
+            )
+            // END DEV-TOGGLE
+        }
     }
 }
 
 @Composable
-private fun Header(email: String, onSignOut: () -> Unit) {
+private fun Header(
+    email: String,
+    status: BondingVpnService.Status,
+    onSignOut: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Antí", color = White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                Text("Jitter", color = Teal, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                Text("Anti", color = White, fontWeight = FontWeight.ExtraBold, fontSize = 23.sp)
+                Text("Jitter", color = Teal, fontWeight = FontWeight.ExtraBold, fontSize = 23.sp)
             }
             Text(email, style = MaterialTheme.typography.bodySmall, color = Dim)
         }
-        TextButton(onClick = onSignOut) { Text("Sign out", color = Dim) }
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            ConnectionPill(status)
+            TextButton(onClick = onSignOut) {
+                Text("Sign out", color = Dim, fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
 }
 
 @Composable
-private fun GameModeToggleBar(
+private fun ConnectionPill(status: BondingVpnService.Status) {
+    val (label, color) = when (status.state) {
+        BondingVpnService.State.CONNECTED -> "Connected" to Green
+        BondingVpnService.State.CONNECTING -> "Connecting" to Orange
+        BondingVpnService.State.FAILED -> "Needs attention" to Red
+        BondingVpnService.State.DISCONNECTED -> "Idle" to Dim
+    }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(color.copy(alpha = 0.11f))
+            .border(BorderStroke(1.dp, color.copy(alpha = 0.22f)), RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(color),
+        )
+        Text(label, color = color, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+private fun HeroConnectionCard(
     status: BondingVpnService.Status,
     busy: Boolean,
     error: String?,
+    pathLatency: Map<String, LatencyMonitor.PathLatency>,
     onToggle: () -> Unit,
 ) {
     val state = status.state
     val on = state == BondingVpnService.State.CONNECTED ||
         state == BondingVpnService.State.CONNECTING
-    val (statusLabel, statusColor) = when {
-        error != null -> error to Red
-        busy -> "Fetching tunnel config…" to Orange
-        state == BondingVpnService.State.CONNECTED -> "Bonded paths active" to Teal
-        state == BondingVpnService.State.CONNECTING -> "Probing networks…" to Orange
-        state == BondingVpnService.State.FAILED -> (status.message ?: "Connection failed") to Red
-        else -> "Tunnel idle" to Dim
+    val measured = pathLatency.values.filter { it.available && it.rttMs != null }
+    val bestRtt = measured.minByOrNull { it.rttMs!! }?.rttMs
+    val slowestRtt = measured.maxByOrNull { it.rttMs!! }?.rttMs
+    val delta = if (bestRtt != null && slowestRtt != null && slowestRtt > bestRtt) {
+        (slowestRtt - bestRtt).toInt()
+    } else null
+    val latencyColor = latencyColor(bestRtt)
+    val statusText = when {
+        error != null -> error
+        busy -> "Fetching tunnel config"
+        state == BondingVpnService.State.CONNECTED -> "Bonded paths active"
+        state == BondingVpnService.State.CONNECTING -> "Probing networks"
+        state == BondingVpnService.State.FAILED -> status.message ?: "Connection failed"
+        else -> "Ready when you are"
     }
-    val barColor by animateColorAsState(
-        targetValue = if (on) Teal.copy(alpha = 0.10f) else Surface,
-        label = "toggleBarBg",
+    val subtitle = when {
+        bestRtt == null -> "Measuring paths..."
+        on && delta != null -> "Saving up to ${delta} ms vs slowest path"
+        on -> "Bonded delivery active"
+        delta != null -> "Best path now - Game Mode locks it in"
+        else -> "Best path now - Game Mode locks it in"
+    }
+    val cardBorder by animateColorAsState(
+        targetValue = when {
+            error != null || state == BondingVpnService.State.FAILED -> Red.copy(alpha = 0.34f)
+            on -> Teal.copy(alpha = 0.34f)
+            else -> Border
+        },
+        label = "heroBorder",
     )
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(barColor)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Game Mode",
-                color = if (on) Teal else White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
+            .clip(RoundedCornerShape(28.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Surface.copy(alpha = 0.98f),
+                        Color(0xFF0F1012).copy(alpha = 0.98f),
+                    ),
+                ),
             )
-            Text(
-                text = statusLabel,
-                color = statusColor,
-                style = MaterialTheme.typography.bodySmall,
+            .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(28.dp))
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Game Mode", color = White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(statusText, color = if (error != null) Red else Dim, style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(
+                checked = on,
+                onCheckedChange = { onToggle() },
+                enabled = !busy,
+                colors = SwitchDefaults.colors(
+                    checkedTrackColor = Teal,
+                    checkedThumbColor = Color.Black,
+                    uncheckedTrackColor = Color(0xFF2B2B30),
+                    uncheckedThumbColor = Color(0xFFE5E5EA),
+                    disabledCheckedTrackColor = Orange,
+                    disabledUncheckedTrackColor = Color(0xFF2B2B30),
+                ),
             )
         }
-        Switch(
-            checked = on,
-            onCheckedChange = { onToggle() },
-            enabled = !busy,
-            colors = SwitchDefaults.colors(
-                checkedTrackColor = Teal,
-                checkedThumbColor = Color.Black,
-                uncheckedTrackColor = Color(0xFF2A2A2A),
-                uncheckedThumbColor = Color(0xFFAAAAAA),
-                disabledCheckedTrackColor = Orange,
-                disabledUncheckedTrackColor = Color(0xFF2A2A2A),
-            ),
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = if (on) "BONDED LATENCY" else "BEST PATH LATENCY",
+                color = Dim,
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = bestRtt?.toInt()?.toString() ?: "--",
+                    color = latencyColor,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 58.sp,
+                    lineHeight = 62.sp,
+                )
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    text = "ms",
+                    color = Dim,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
+            Text(subtitle, color = Dim, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -193,26 +288,18 @@ private fun ModeSelectorCard(
     onSelect: (BondingClient.Mode) -> Unit,
 ) {
     val description = when (selected) {
-        BondingClient.Mode.GAMING ->
-            "Every packet on Wi-Fi AND cellular. Zero spike loss — locks in low latency."
-        BondingClient.Mode.BROWSING ->
-            "Wi-Fi first; cellular only kicks in when Wi-Fi drops. Saves your cellular cap."
+        BondingClient.Mode.GAMING -> "Every packet uses every active path. Best for games and voice."
+        BondingClient.Mode.BROWSING -> "Wi-Fi first, cellular as backup. Better for saving data."
     }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(Surface)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-    ) {
+    AppCard {
         Text("MODE", color = Dim, style = MaterialTheme.typography.labelSmall)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF1A1A1A))
-                .padding(3.dp),
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF1A1A1D))
+                .padding(4.dp),
         ) {
             ModeChip(
                 label = "Gaming",
@@ -227,7 +314,7 @@ private fun ModeSelectorCard(
                 modifier = Modifier.weight(1f),
             )
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         Text(description, color = Dim, style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -245,84 +332,16 @@ private fun ModeChip(
     )
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .clickable { onClick() }
-            .padding(vertical = 8.dp),
+            .padding(vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
             color = if (selected) Color.Black else Dim,
-            fontWeight = FontWeight.SemiBold,
-        )
-    }
-}
-
-@Composable
-private fun HeroLatencyCard(
-    status: BondingVpnService.Status,
-    pathLatency: Map<String, LatencyMonitor.PathLatency>,
-) {
-    val on = status.state == BondingVpnService.State.CONNECTED
-    // Bonded delivery picks the first-arriving packet, so the bonded RTT is
-    // approximately the minimum across available paths. Until we measure
-    // through-tunnel RTT directly, this is a good live proxy.
-    val measured = pathLatency.values.filter { it.available && it.rttMs != null }
-    val bestRtt = measured.minByOrNull { it.rttMs!! }?.rttMs
-    val secondBest = measured.sortedBy { it.rttMs!! }.getOrNull(1)?.rttMs
-    val delta = if (bestRtt != null && secondBest != null) (secondBest - bestRtt).toInt() else null
-
-    val number = bestRtt?.toInt()?.toString() ?: "—"
-    val numberColor = when {
-        bestRtt == null -> Dim
-        bestRtt < 50f -> Green
-        bestRtt < 100f -> Teal
-        bestRtt < 200f -> Orange
-        else -> Red
-    }
-    val subtitle = when {
-        bestRtt == null -> "Measuring paths…"
-        on && delta != null -> "Bonded — saving up to ${delta} ms vs slowest path"
-        on -> "Bonded delivery active"
-        delta != null -> "Best path right now · turn on Game Mode to lock in"
-        else -> "Best path right now · turn on Game Mode to lock in"
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Surface)
-            .padding(horizontal = 22.dp, vertical = 22.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = if (on) "BONDED LATENCY" else "BEST PATH LATENCY",
-            color = Dim,
-            style = MaterialTheme.typography.labelSmall,
-        )
-        Spacer(Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                text = number,
-                color = numberColor,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 48.sp,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = "ms",
-                color = Dim,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 10.dp),
-            )
-        }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = subtitle,
-            color = Dim,
-            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold,
         )
     }
 }
@@ -340,17 +359,12 @@ private fun mergePaths(
     bondedPaths: List<BondingClient.PathStats>,
     pathLatency: Map<String, LatencyMonitor.PathLatency>,
 ): List<PathDisplay> {
-    // Show one row per network the latency monitor knows about (so Wi-Fi and
-    // Cellular appear before Game Mode is on), augmented with bytes/packets
-    // from the bonding stats when available. Latency-monitor names match the
-    // bonding service path names ("Wi-Fi", "Cellular"), so the merge is direct.
+    val order = listOf("Wi-Fi", "Cellular")
     if (pathLatency.isEmpty()) {
-        // Initial state: fall back to whatever bonding reported (may be empty too).
         return bondedPaths.map { p ->
             PathDisplay(p.name, p.active, null, null, p.bytesSent, p.packetsSent)
         }
     }
-    val order = listOf("Wi-Fi", "Cellular")
     return order.mapNotNull { name ->
         val lat = pathLatency[name] ?: return@mapNotNull null
         val bonded = bondedPaths.firstOrNull { it.name == name }
@@ -371,110 +385,143 @@ private fun ActivePathsCard(
     pathLatency: Map<String, LatencyMonitor.PathLatency>,
 ) {
     val merged = mergePaths(bondedPaths, pathLatency)
-    if (merged.isEmpty()) return
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Surface)
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-    ) {
-        Text(
-            text = "ACTIVE PATHS",
-            color = Dim,
-            style = MaterialTheme.typography.labelSmall,
-        )
-        Spacer(Modifier.height(10.dp))
-        merged.forEachIndexed { i, p ->
-            PathRow(p)
-            if (i < merged.lastIndex) {
-                Spacer(Modifier.height(6.dp))
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Border))
-                Spacer(Modifier.height(6.dp))
+    AppCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("ACTIVE PATHS", color = Dim, style = MaterialTheme.typography.labelSmall)
+            Text(
+                text = "${merged.count { it.active }} online",
+                color = Dim,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        if (merged.isEmpty()) {
+            Text("Waiting for Wi-Fi or cellular...", color = Dim, style = MaterialTheme.typography.bodySmall)
+        } else {
+            merged.forEachIndexed { i, p ->
+                PathRow(p)
+                if (i < merged.lastIndex) {
+                    Spacer(Modifier.height(10.dp))
+                    DividerLine()
+                    Spacer(Modifier.height(10.dp))
+                }
             }
         }
     }
 }
 
 @Composable
-private fun PathRow(p: PathDisplay) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(if (p.active) Green else Dim),
-            )
-            Spacer(Modifier.width(12.dp))
+private fun PathRow(path: PathDisplay) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(9.dp)
+                .clip(CircleShape)
+                .background(if (path.active) Green else Dim),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = path.name,
+                    color = White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = path.rttMs?.let { "${it.toInt()} ms" } ?: "--",
+                    color = latencyColor(path.rttMs),
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 17.sp,
+                )
+            }
             Text(
-                text = p.name,
-                color = White,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.width(80.dp),
-            )
-            Text(
-                text = p.rttMs?.let { "${it.toInt()} ms" } ?: "—",
-                color = if (p.active) White else Dim,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = p.jitterMs?.let { "±${it.toInt()} ms" } ?: "",
+                text = path.bytesSent?.let { "${formatBytes(it)} - ${path.packetsSent ?: 0} pkts" }
+                    ?: "Measuring path",
                 color = Dim,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        if (p.bytesSent != null) {
-            Spacer(Modifier.height(2.dp))
-            Row(modifier = Modifier.padding(start = 20.dp)) {
-                Text(
-                    text = "${formatBytes(p.bytesSent)} · ${p.packetsSent ?: 0} pkts",
-                    color = Dim,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+        Text(
+            text = path.jitterMs?.let { "+/-${it.toInt()} ms" } ?: "",
+            color = Dim,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun SessionSummaryCard(stats: BondingClient.Stats?) {
+    AppCard {
+        Text("SESSION", color = Dim, style = MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
+            SummaryMetric("Sent", formatBytes(stats?.totalBytesUp ?: 0L), Modifier.weight(1f))
+            SummaryMetric("Received", formatBytes(stats?.totalBytesDown ?: 0L), Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
+            SummaryMetric("Cellular", formatBytes(stats?.cellularBytesUp ?: 0L), Modifier.weight(1f))
+            SummaryMetric("Failovers", "--", Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun SessionSummaryCard(stats: BondingClient.Stats) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Surface)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        SummaryRow("Sent", formatBytes(stats.totalBytesUp))
-        SummaryRow("Received", formatBytes(stats.totalBytesDown))
-        SummaryRow("Cellular used", formatBytes(stats.cellularBytesUp))
-        SummaryRow("Seamless failovers", "—")
+private fun SummaryMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = Dim, style = MaterialTheme.typography.bodySmall)
+        Text(value, color = White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
     }
 }
 
 @Composable
-private fun SummaryRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, color = Dim, style = MaterialTheme.typography.bodyMedium)
-        Text(value, color = White, fontWeight = FontWeight.SemiBold)
-    }
+private fun AppCard(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(Surface.copy(alpha = 0.96f))
+            .border(BorderStroke(1.dp, Border), RoundedCornerShape(24.dp))
+            .padding(18.dp),
+        content = content,
+    )
 }
 
-private fun formatBytes(b: Long): String = when {
-    b < 1024L -> "$b B"
-    b < 1024L * 1024 -> "${b / 1024} KB"
-    b < 1024L * 1024 * 1024 -> String.format("%.1f MB", b / 1024.0 / 1024.0)
-    else -> String.format("%.2f GB", b / 1024.0 / 1024.0 / 1024.0)
+@Composable
+private fun DividerLine() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(Border),
+    )
 }
 
-// BEGIN DEV-TOGGLE (route-all) — remove for production
+private fun latencyColor(rttMs: Float?): Color = when {
+    rttMs == null -> Dim
+    rttMs < 50f -> Green
+    rttMs < 100f -> Teal
+    rttMs < 200f -> Orange
+    else -> Red
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes < 1024L -> "$bytes B"
+    bytes < 1024L * 1024L -> "${bytes / 1024L} KB"
+    bytes < 1024L * 1024L * 1024L -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+    else -> String.format("%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0)
+}
+
+// BEGIN DEV-TOGGLE (route-all) - remove for production
 @Composable
 private fun DevRouteAllRow(
     enabled: Boolean,
@@ -484,16 +531,17 @@ private fun DevRouteAllRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Surface)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFF101013))
+            .border(BorderStroke(1.dp, Border), RoundedCornerShape(18.dp))
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text("DEV: route ALL traffic", color = White, style = MaterialTheme.typography.bodyMedium)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("DEV: route all traffic", color = White, style = MaterialTheme.typography.bodyMedium)
             Text(
-                if (tunnelActive) "Applies on next Game Mode toggle — turn off then on."
-                else "Sends every packet through Germany (for speedtest.net checks).",
+                if (tunnelActive) "Applies on next Game Mode restart."
+                else "Routes every packet through Germany.",
                 color = Dim,
                 style = MaterialTheme.typography.bodySmall,
             )
