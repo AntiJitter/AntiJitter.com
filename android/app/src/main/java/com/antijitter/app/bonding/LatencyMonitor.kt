@@ -24,14 +24,14 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sqrt
 
 /**
- * Measures individual path latency (Wi-Fi, Cellular) by timing TCP connects to a
+ * Measures individual path latency (Wi-Fi, mobile data) by timing TCP connects to a
  * known endpoint over each transport, independent of whether the VPN is up.
  *
  * Uses `NetworkRequest` with `NET_CAPABILITY_NOT_VPN` so binding a socket to the
  * acquired Network forces traffic through the physical interface and bypasses
  * our own bonded tunnel — otherwise we'd be measuring the tunnel, not the path.
  *
- * Output is a hot [StateFlow] keyed by display name ("Wi-Fi", "Cellular") so
+ * Output is a hot [StateFlow] keyed by display name ("Wi-Fi", "Mobile data") so
  * the UI can render one row per available transport.
  */
 class LatencyMonitor(context: Context) {
@@ -163,7 +163,7 @@ class LatencyMonitor(context: Context) {
 
         private val TRANSPORTS = listOf(
             NetworkCapabilities.TRANSPORT_WIFI to "Wi-Fi",
-            NetworkCapabilities.TRANSPORT_CELLULAR to "Cellular",
+            NetworkCapabilities.TRANSPORT_CELLULAR to "Mobile data",
         )
     }
 }

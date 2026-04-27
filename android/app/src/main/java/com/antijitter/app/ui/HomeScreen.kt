@@ -289,7 +289,7 @@ private fun ModeSelectorCard(
 ) {
     val description = when (selected) {
         BondingClient.Mode.GAMING -> "Every packet uses every active path. Best for games and voice."
-        BondingClient.Mode.BROWSING -> "Wi-Fi first, cellular as backup. Better for saving data."
+        BondingClient.Mode.BROWSING -> "Wi-Fi first, mobile data as backup. Better for saving data."
     }
     AppCard {
         Text("MODE", color = Dim, style = MaterialTheme.typography.labelSmall)
@@ -359,20 +359,30 @@ private fun mergePaths(
     bondedPaths: List<BondingClient.PathStats>,
     pathLatency: Map<String, LatencyMonitor.PathLatency>,
 ): List<PathDisplay> {
-    val order = listOf("Wi-Fi", "Cellular")
+    val order = listOf("Wi-Fi", "Mobile data", "Cellular")
+    val bondedByName = bondedPaths.associateBy { displayPathName(it.name, it.cellular) }
+    val latencyByName = pathLatency.values.associateBy { displayPathName(it.name, false) }
     if (pathLatency.isEmpty()) {
         return bondedPaths.map { p ->
-            PathDisplay(p.name, p.active, null, null, p.bytesSent, p.packetsSent)
+            PathDisplay(displayPathName(p.name, p.cellular), p.active, null, null, p.bytesSent, p.packetsSent)
         }
     }
-    return order.mapNotNull { name ->
-        val lat = pathLatency[name] ?: return@mapNotNull null
-        val bonded = bondedPaths.firstOrNull { it.name == name }
+    val names = buildList {
+        order.map { displayPathName(it) }.forEach { name ->
+            if ((latencyByName.containsKey(name) || bondedByName.containsKey(name)) && !contains(name)) add(name)
+        }
+        (latencyByName.keys + bondedByName.keys).forEach { name ->
+            if (!contains(name)) add(name)
+        }
+    }
+    return names.map { name ->
+        val lat = latencyByName[name]
+        val bonded = bondedByName[name]
         PathDisplay(
-            name = name,
-            active = lat.available,
-            rttMs = lat.rttMs,
-            jitterMs = lat.jitterMs,
+            name = displayPathName(name, bonded?.cellular == true),
+            active = lat?.available ?: bonded?.active ?: false,
+            rttMs = lat?.rttMs,
+            jitterMs = lat?.jitterMs,
             bytesSent = bonded?.bytesSent,
             packetsSent = bonded?.packetsSent,
         )
@@ -400,7 +410,7 @@ private fun ActivePathsCard(
         }
         Spacer(Modifier.height(12.dp))
         if (merged.isEmpty()) {
-            Text("Waiting for Wi-Fi or cellular...", color = Dim, style = MaterialTheme.typography.bodySmall)
+            Text("Waiting for Wi-Fi or mobile data...", color = Dim, style = MaterialTheme.typography.bodySmall)
         } else {
             merged.forEachIndexed { i, p ->
                 PathRow(p)
@@ -428,21 +438,12 @@ private fun PathRow(path: PathDisplay) {
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = path.name,
-                    color = White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = path.rttMs?.let { "${it.toInt()} ms" } ?: "--",
-                    color = latencyColor(path.rttMs),
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 17.sp,
-                )
-            }
+            Text(
+                text = path.name,
+                color = White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+            )
             Text(
                 text = path.bytesSent?.let { "${formatBytes(it)} - ${path.packetsSent ?: 0} pkts" }
                     ?: "Measuring path",
@@ -450,11 +451,20 @@ private fun PathRow(path: PathDisplay) {
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        Text(
-            text = path.jitterMs?.let { "+/-${it.toInt()} ms" } ?: "",
-            color = Dim,
-            style = MaterialTheme.typography.bodySmall,
-        )
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = path.rttMs?.let { "${it.toInt()} ms" } ?: "--",
+                color = latencyColor(path.rttMs),
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 18.sp,
+            )
+            Text(
+                text = path.jitterMs?.let { "jitter +/-${it.toInt()} ms" } ?: "jitter --",
+                color = Dim,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.End,
+            )
+        }
     }
 }
 
@@ -469,7 +479,7 @@ private fun SessionSummaryCard(stats: BondingClient.Stats?) {
         }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-            SummaryMetric("Cellular", formatBytes(stats?.cellularBytesUp ?: 0L), Modifier.weight(1f))
+            SummaryMetric("Mobile", formatBytes(stats?.cellularBytesUp ?: 0L), Modifier.weight(1f))
             SummaryMetric("Failovers", "--", Modifier.weight(1f))
         }
     }
@@ -512,6 +522,12 @@ private fun latencyColor(rttMs: Float?): Color = when {
     rttMs < 100f -> Teal
     rttMs < 200f -> Orange
     else -> Red
+}
+
+private fun displayPathName(name: String, cellular: Boolean = false): String = when {
+    cellular -> "Mobile data"
+    name == "Cellular" -> "Mobile data"
+    else -> name
 }
 
 private fun formatBytes(bytes: Long): String = when {

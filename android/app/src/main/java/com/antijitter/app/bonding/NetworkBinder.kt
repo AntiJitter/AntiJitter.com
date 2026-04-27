@@ -10,7 +10,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.net.DatagramSocket
 
 /**
- * Acquires Wi-Fi and cellular [Network] objects independently so each bonding
+ * Acquires Wi-Fi and mobile-data [Network] objects independently so each bonding
  * socket can be pinned to its own interface via [Network.bindSocket].
  *
  * Android equivalent of Windows IP_UNICAST_IF — but it actually works reliably.
