@@ -76,11 +76,11 @@ Use these phrases consistently across web, Android, marketing, and notifications
 |---|---|---|
 | One UDP packet duplicated across paths and the dupe dropped on arrival | (don't expose to user) | "packets saved", "redundant packets" |
 | A moment when one path dropped and the tunnel kept going on the other(s) | **Seamless failover** | "failover caught", "outage avoided", "connection rescued" |
-| The combined Wi-Fi + cellular tunnel | **Bonded connection** / **Game Mode** | "VPN", "tunnel" (in user copy) |
+| The combined Wi-Fi + mobile-data tunnel | **Bonded connection** / **Game Mode** | "VPN", "tunnel" (in user copy) |
 | The tunnel master on/off control | **Game Mode** | (don't change — brand name) |
 | Send-strategy: every packet on every path | **Gaming** | "Redundant", "Duplicate" |
-| Send-strategy: primary only, cellular as failover | **Browsing** | "Failover", "Backup", "Standby" |
-| Each underlying network (Wi-Fi, cellular, Starlink) | **Path** | "interface", "link" |
+| Send-strategy: primary only, mobile data as failover | **Browsing** | "Failover", "Backup", "Standby" |
+| Each underlying network (Wi-Fi, mobile data, Starlink) | **Path** | "interface", "link" |
 | A network handing off (cell tower change, Starlink satellite swap) | **Handoff** | "switch", "drop" |
 | Latency variance | **Jitter** | "ping variation" |
 | Locking in low-latency state | **Lock in** | "guarantee", "ensure" |
@@ -121,11 +121,11 @@ Implemented in `android/app/src/main/java/com/antijitter/app/ui/HomeScreen.kt`. 
 ├──────────────────────────────────────┤
 │ ACTIVE PATHS                         │  ActivePathsCard
 │ ● Wi-Fi      3.2 MB    412 pkts      │   one-liner per path
-│ ● Cellular   1.4 MB    198 pkts      │
+│ ● Mobile data     68 ms              │
 ├──────────────────────────────────────┤
 │ Sent                  4.6 MB         │  SessionSummaryCard
 │ Received             82.1 MB         │
-│ Cellular used         1.4 MB         │
+│ Mobile used           1.4 MB         │
 │ Seamless failovers        —          │
 ├──────────────────────────────────────┤
 │ DEV: route ALL traffic    [switch]   │  DevRouteAllRow (anchored, removable)
@@ -155,12 +155,20 @@ The Android UI now reserves slots for these but shows `—` until they exist:
 
 Track every change here so the Android port is a translation, not a redesign.
 
+### 2026-04-28 - Android path row readability
+- Active path rows now put ping on the right edge as the primary value, with jitter directly below it in smaller dim text. Path names stay on the left with bytes and packet counts underneath.
+- User-facing cellular copy is now **Mobile data** in Android UI and service path labels. Internal accounting can still use `cellular*` names where it reflects Android transport semantics.
+- We are not showing 4G/5G yet; Android transport type only tells us cellular/mobile data reliably without adding telephony permissions.
+- Mode selector and session stats are more compact so active telemetry sits higher on phone screens. Session stats are a single row of four metrics with a small **Share Game Mode** action.
+- **Share Game Mode** is a modal, not a full page yet. It explains Android hotspot sharing, opens hotspot settings, and opens VPN settings for Always-on / Block connections without VPN. Keep lockdown framed as strict hotspot protection, not default onboarding.
+- Hero card now includes a compact real path-latency sparkline for Wi-Fi and Mobile data. This uses Android `LatencyMonitor` samples only; do not port the dashboard's simulated Game Mode comparison line until we have true through-tunnel/bonded probe samples.
+
 ### 2026-04-27 - Android Apple-style polish pass
 - Login is now a product landing/sign-in surface: dark gradient top wash, large "Lock in low latency" headline, three compact proof metrics, and a rounded sign-in panel. Account creation remains off-app for now.
 - Home screen now uses one hero `HeroConnectionCard` combining Game Mode switch, status copy, and latency number. This reduces vertical fragmentation and makes the main state obvious at a glance.
 - Card radius on Android moves to 24-28 dp for the app shell only, matching the requested Apple-style mobile feel. Dashboard card radius remains governed by the existing web spec unless explicitly changed later.
 - Active paths keep the Speedify-style dense row model, but latency is promoted as the row's primary value and bytes/packets move to supporting text. Jitter remains on the right as a quieter secondary stat.
-- Session summary moves to a 2x2 metric grid (`Sent`, `Received`, `Cellular`, `Failovers`) to reduce the old stacked table feel while keeping the same fields.
+- Session summary moves to a 2x2 metric grid (`Sent`, `Received`, `Mobile`, `Failovers`) to reduce the old stacked table feel while keeping the same fields.
 - Copy remains minimal and user-facing: "Game Mode", "Gaming", "Browsing", "Active paths", and "Seamless failovers" are unchanged.
 
 ### 2026-04-23 — initial spec + dashboard fixes

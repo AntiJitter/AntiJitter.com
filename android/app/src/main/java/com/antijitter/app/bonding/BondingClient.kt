@@ -161,7 +161,7 @@ class BondingClient(
     /**
      * Returns the underlying [Network] objects this client is currently sending packets through.
      * Used by [com.antijitter.app.vpn.BondingVpnService.setUnderlyingNetworks] so Android knows
-     * the VPN is layered on top of these — surfaces both Wi-Fi and Cellular icons in the status
+     * the VPN is layered on top of these — surfaces both Wi-Fi and mobile-data icons in the status
      * bar and lets the system attribute traffic for metering.
      */
     fun activeNetworks(): Array<Network> {
