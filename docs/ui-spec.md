@@ -103,3 +103,4 @@ Track every change here so the Android port is a translation, not a redesign.
 - Added `−Δ ms vs Starlink alone` delta pill on BondingPanel when both stats exist.
 - Subtitle under `Starlink Latency` moved below the controls row on narrow viewports (no longer stacked next to title on mobile).
 - BondingPanel small stat `Failovers caught` → `Seamless failovers` (Speedify-style framing). Added Terminology table to lock this and other phrasing across surfaces.
+- `StarlinkPingChart` simulation rewritten: Game Mode line now `min(starlink, baseline*1.10)` continuously, not only during 4× spikes. Baseline can be computed from as few as 3 trailing samples, with a global-floor fallback so the line diverges from the first sample. The previous behaviour overlapped completely until enough history accumulated, which looked broken even when the chart showed an obvious spike.

@@ -11,11 +11,17 @@ import {
 import { useMemo, useState } from "react";
 
 const DISPLAY_CAP     = 200;
-const SPIKE_MULT      = 4;
-const SPIKE_ABS_MIN   = 100;
 const HANDOFF_ABS_MIN = 300;
 const BASELINE_WINDOW = 90;
 const BASELINE_PCT    = 0.20;
+const MIN_BASELINE_SAMPLES = 3;
+// Game Mode cap = baseline * this. ~10% overhead is realistic for an extra
+// encrypted hop through the bonding server.
+const GAME_MODE_OVERHEAD = 1.10;
+// Only flag a point as a spike on the chart once it's this much above the
+// floor — used for handoff markers, not for the simulated line.
+const SPIKE_MULT      = 4;
+const SPIKE_ABS_MIN   = 100;
 
 // Switch to bucket mode once there are more raw points than this
 const RAW_MAX = 150;
@@ -32,20 +38,40 @@ const TIME_WINDOWS = [
 function buildRawData(samples) {
   if (!samples.length) return { data: [], stats: null, bucketed: false };
 
+  // Seed a global floor from the whole sample set so early points already get
+  // a meaningful Game Mode cap instead of overlapping until enough history
+  // accumulates. Real bonding delivers min(path_latencies) continuously —
+  // the simulation should reflect that from the first sample.
+  const allSortedMs = samples.map((s) => s.latency_ms).sort((a, b) => a - b);
+  const globalFloor = allSortedMs.length
+    ? allSortedMs[Math.floor(allSortedMs.length * BASELINE_PCT)]
+    : null;
+
   const data = samples.map((s, i) => {
     const win = samples
       .slice(Math.max(0, i - BASELINE_WINDOW), i)
       .map((x) => x.latency_ms)
       .sort((a, b) => a - b);
-    const baseline =
-      win.length >= 8 ? win[Math.floor(win.length * BASELINE_PCT)] : null;
+    const localBaseline =
+      win.length >= MIN_BASELINE_SAMPLES ? win[Math.floor(win.length * BASELINE_PCT)] : null;
+    // Prefer the trailing window so the line reacts to recent changes, but
+    // fall back to the full-sample floor before we have enough history.
+    const baseline = localBaseline ?? globalFloor;
 
     const isSpike =
       baseline !== null &&
       s.latency_ms > baseline * SPIKE_MULT &&
       s.latency_ms > SPIKE_ABS_MIN;
     const isHandoff = isSpike && s.latency_ms > HANDOFF_ABS_MIN;
-    const gameMode   = isSpike && baseline ? baseline * 1.05 : s.latency_ms;
+
+    // Game Mode always caps at floor + overhead — min(starlink, cap). During
+    // quiet times starlink <= cap so lines overlap; during any elevation
+    // starlink > cap and the teal line visibly diverges below.
+    const gameMode =
+      baseline != null
+        ? Math.min(s.latency_ms, baseline * GAME_MODE_OVERHEAD)
+        : s.latency_ms;
+
     const starlink   = Math.round(s.latency_ms * 10) / 10;
     const gm         = Math.round(gameMode    * 10) / 10;
 
