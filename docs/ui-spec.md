@@ -161,6 +161,7 @@ Track every change here so the Android port is a translation, not a redesign.
 - We are not showing 4G/5G yet; Android transport type only tells us cellular/mobile data reliably without adding telephony permissions.
 - Mode selector and session stats are more compact so active telemetry sits higher on phone screens. Session stats are a single row of four metrics with a small **Share Game Mode** action.
 - **Share Game Mode** is a modal, not a full page yet. It explains Android hotspot sharing, opens hotspot settings, and opens VPN settings for Always-on / Block connections without VPN. Keep lockdown framed as strict hotspot protection, not default onboarding.
+- Hero card now includes a compact real path-latency sparkline for Wi-Fi and Mobile data. This uses Android `LatencyMonitor` samples only; do not port the dashboard's simulated Game Mode comparison line until we have true through-tunnel/bonded probe samples.
 
 ### 2026-04-27 - Android Apple-style polish pass
 - Login is now a product landing/sign-in surface: dark gradient top wash, large "Lock in low latency" headline, three compact proof metrics, and a rounded sign-in panel. Account creation remains off-app for now.

@@ -2,6 +2,7 @@ package com.antijitter.app.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,7 +31,9 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,6 +42,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -78,6 +84,19 @@ fun HomeScreen(
     val tunnelActive = status.state == BondingVpnService.State.CONNECTED ||
         status.state == BondingVpnService.State.CONNECTING
     var showShareDialog by remember { mutableStateOf(false) }
+    val latencyHistory = remember { mutableStateListOf<LatencySample>() }
+
+    LaunchedEffect(pathLatency) {
+        val wifi = pathLatency.values.firstOrNull { displayPathName(it.name) == "Wi-Fi" && it.available }?.rttMs
+        val mobile = pathLatency.values.firstOrNull { displayPathName(it.name) == "Mobile data" && it.available }?.rttMs
+        val best = listOfNotNull(wifi, mobile).minOrNull() ?: return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        if (latencyHistory.lastOrNull()?.ts?.let { now - it < 1000L } == true) return@LaunchedEffect
+        latencyHistory += LatencySample(ts = now, wifiMs = wifi, mobileMs = mobile, bestMs = best)
+        while (latencyHistory.size > LATENCY_HISTORY_LIMIT) {
+            latencyHistory.removeAt(0)
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -109,6 +128,7 @@ fun HomeScreen(
                 busy = busy,
                 error = error,
                 pathLatency = pathLatency,
+                latencyHistory = latencyHistory,
                 onToggle = onToggle,
             )
             ModeSelectorCard(selected = tunnelMode, onSelect = onTunnelModeChange)
@@ -192,6 +212,7 @@ private fun HeroConnectionCard(
     busy: Boolean,
     error: String?,
     pathLatency: Map<String, LatencyMonitor.PathLatency>,
+    latencyHistory: List<LatencySample>,
     onToggle: () -> Unit,
 ) {
     val state = status.state
@@ -295,6 +316,7 @@ private fun HeroConnectionCard(
             }
             Text(subtitle, color = Dim, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
         }
+        LatencySparkline(samples = latencyHistory)
     }
 }
 
@@ -362,6 +384,90 @@ private fun ModeChip(
     }
 }
 
+@Composable
+private fun LatencySparkline(samples: List<LatencySample>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("LATENCY TREND", color = Dim, style = MaterialTheme.typography.labelSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                LegendDot(color = Green, label = "Wi-Fi")
+                LegendDot(color = Teal, label = "Mobile")
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White.copy(alpha = 0.035f))
+                .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.055f)), RoundedCornerShape(16.dp))
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (samples.size < 2) {
+                Text("Collecting samples...", color = Dim, style = MaterialTheme.typography.labelSmall)
+            } else {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val allValues = samples.flatMap { listOfNotNull(it.wifiMs, it.mobileMs) }
+                    val max = (allValues.maxOrNull() ?: 100f).coerceAtLeast(100f)
+                    val min = (allValues.minOrNull() ?: 0f).coerceAtMost(0f)
+                    val range = (max - min).coerceAtLeast(1f)
+
+                    fun yFor(value: Float): Float {
+                        val normalized = (value - min) / range
+                        return size.height - (normalized * size.height)
+                    }
+
+                    fun drawSeries(values: List<Float?>, color: Color, width: Float) {
+                        val points = values.mapIndexedNotNull { index, value ->
+                            value?.let {
+                                val x = if (samples.size == 1) 0f else size.width * index / (samples.size - 1)
+                                x to yFor(it)
+                            }
+                        }
+                        if (points.size < 2) return
+                        val path = Path().apply {
+                            moveTo(points.first().first, points.first().second)
+                            points.drop(1).forEach { (x, y) -> lineTo(x, y) }
+                        }
+                        drawPath(
+                            path = path,
+                            color = color,
+                            style = Stroke(width = width, cap = StrokeCap.Round),
+                        )
+                    }
+
+                    drawLine(
+                        color = Border.copy(alpha = 0.70f),
+                        start = androidx.compose.ui.geometry.Offset(0f, size.height),
+                        end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+                        strokeWidth = 1.dp.toPx(),
+                    )
+                    drawSeries(samples.map { it.wifiMs }, Green, 2.dp.toPx())
+                    drawSeries(samples.map { it.mobileMs }, Teal, 2.dp.toPx())
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegendDot(color: Color, label: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(color),
+        )
+        Text(label, color = Dim, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
 private data class PathDisplay(
     val name: String,
     val active: Boolean,
@@ -369,6 +475,13 @@ private data class PathDisplay(
     val jitterMs: Float?,
     val bytesSent: Long?,
     val packetsSent: Long?,
+)
+
+private data class LatencySample(
+    val ts: Long,
+    val wifiMs: Float?,
+    val mobileMs: Float?,
+    val bestMs: Float,
 )
 
 private fun mergePaths(
