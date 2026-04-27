@@ -2,6 +2,7 @@ package com.antijitter.app.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,6 +73,8 @@ fun HomeScreen(
     status: BondingVpnService.Status,
     stats: BondingClient.Stats?,
     pathLatency: Map<String, LatencyMonitor.PathLatency>,
+    tunnelMode: BondingClient.Mode,
+    onTunnelModeChange: (BondingClient.Mode) -> Unit,
     busy: Boolean,
     error: String?,
     onToggle: () -> Unit,
@@ -89,6 +92,7 @@ fun HomeScreen(
     ) {
         Header(email = email, onSignOut = onSignOut)
         GameModeToggleBar(status = status, busy = busy, error = error, onToggle = onToggle)
+        ModeSelectorCard(selected = tunnelMode, onSelect = onTunnelModeChange)
         HeroLatencyCard(status = status, pathLatency = pathLatency)
         ActivePathsCard(bondedPaths = stats?.paths.orEmpty(), pathLatency = pathLatency)
         if (stats != null) {
@@ -179,6 +183,78 @@ private fun GameModeToggleBar(
                 disabledCheckedTrackColor = Orange,
                 disabledUncheckedTrackColor = Color(0xFF2A2A2A),
             ),
+        )
+    }
+}
+
+@Composable
+private fun ModeSelectorCard(
+    selected: BondingClient.Mode,
+    onSelect: (BondingClient.Mode) -> Unit,
+) {
+    val description = when (selected) {
+        BondingClient.Mode.GAMING ->
+            "Every packet on Wi-Fi AND cellular. Zero spike loss — locks in low latency."
+        BondingClient.Mode.BROWSING ->
+            "Wi-Fi first; cellular only kicks in when Wi-Fi drops. Saves your cellular cap."
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Surface)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+    ) {
+        Text("MODE", color = Dim, style = MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF1A1A1A))
+                .padding(3.dp),
+        ) {
+            ModeChip(
+                label = "Gaming",
+                selected = selected == BondingClient.Mode.GAMING,
+                onClick = { onSelect(BondingClient.Mode.GAMING) },
+                modifier = Modifier.weight(1f),
+            )
+            ModeChip(
+                label = "Browsing",
+                selected = selected == BondingClient.Mode.BROWSING,
+                onClick = { onSelect(BondingClient.Mode.BROWSING) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(description, color = Dim, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun ModeChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val bg by animateColorAsState(
+        targetValue = if (selected) Teal else Color.Transparent,
+        label = "modeChipBg",
+    )
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(bg)
+            .clickable { onClick() }
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (selected) Color.Black else Dim,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }

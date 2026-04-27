@@ -62,6 +62,7 @@ class BondingVpnService : VpnService() {
     private var bonding: BondingClient? = null
     private var wireguard: WireGuardTunnel? = null
     private var binder: NetworkBinder? = null
+    private var pendingMode: BondingClient.Mode = BondingClient.Mode.GAMING
 
     override fun onCreate() {
         super.onCreate()
@@ -81,11 +82,22 @@ class BondingVpnService : VpnService() {
                     setState(State.FAILED, "Missing config")
                     return START_NOT_STICKY
                 }
-                startTunnel(configJson)
+                val mode = intent.getStringExtra(EXTRA_TUNNEL_MODE)
+                    ?.let { runCatching { BondingClient.Mode.valueOf(it) }.getOrNull() }
+                    ?: BondingClient.Mode.GAMING
+                startTunnel(configJson, mode)
             }
             ACTION_STOP -> {
                 stopTunnel("user request")
                 stopSelf()
+            }
+            ACTION_SET_MODE -> {
+                val mode = intent.getStringExtra(EXTRA_TUNNEL_MODE)
+                    ?.let { runCatching { BondingClient.Mode.valueOf(it) }.getOrNull() }
+                if (mode != null) {
+                    Log.i(TAG, "live mode change to $mode")
+                    bonding?.setMode(mode)
+                }
             }
         }
         return START_NOT_STICKY
@@ -119,13 +131,14 @@ class BondingVpnService : VpnService() {
         super.onRevoke()
     }
 
-    private fun startTunnel(configJson: String) {
+    private fun startTunnel(configJson: String, mode: BondingClient.Mode) {
         if (startJob?.isActive == true) {
             Log.w(TAG, "start requested while already starting")
             return
         }
-        Log.i(TAG, "startTunnel: state -> CONNECTING")
+        Log.i(TAG, "startTunnel: state -> CONNECTING (mode=$mode)")
         setState(State.CONNECTING, null)
+        pendingMode = mode
         try {
             ensureChannel()
             val notif = buildNotification("Connecting…", "Setting up bonded paths")
@@ -190,6 +203,7 @@ class BondingVpnService : VpnService() {
         val client = BondingClient(protect = ::protect).also { bonding = it }
         val bondingPort = client.startLocalListener()
         client.setDataLimit(config.data_limit_mb)
+        client.setMode(pendingMode)
 
         // Register persistent monitors per transport. onAvailable adds or replaces the path;
         // onLost removes it. This is what makes Wi-Fi / cellular drops auto-recover without
@@ -360,21 +374,32 @@ class BondingVpnService : VpnService() {
 
         const val ACTION_START = "com.antijitter.app.action.START"
         const val ACTION_STOP = "com.antijitter.app.action.STOP"
+        const val ACTION_SET_MODE = "com.antijitter.app.action.SET_MODE"
         const val EXTRA_CONFIG_JSON = "config_json"
+        const val EXTRA_TUNNEL_MODE = "tunnel_mode"
 
         /** Globally observable state for the UI. Single instance — only one tunnel at a time. */
         val statusFlow = MutableStateFlow(Status(State.DISCONNECTED, null))
         val status: StateFlow<Status> = statusFlow.asStateFlow()
 
-        fun start(context: Context, configJson: String) {
+        fun start(context: Context, configJson: String, mode: BondingClient.Mode) {
             val intent = Intent(context, BondingVpnService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_CONFIG_JSON, configJson)
+                .putExtra(EXTRA_TUNNEL_MODE, mode.name)
             context.startForegroundService(intent)
         }
 
         fun stop(context: Context) {
             val intent = Intent(context, BondingVpnService::class.java).setAction(ACTION_STOP)
+            context.startService(intent)
+        }
+
+        /** Live-changes the dispatching mode for an already-running tunnel. */
+        fun setMode(context: Context, mode: BondingClient.Mode) {
+            val intent = Intent(context, BondingVpnService::class.java)
+                .setAction(ACTION_SET_MODE)
+                .putExtra(EXTRA_TUNNEL_MODE, mode.name)
             context.startService(intent)
         }
     }
