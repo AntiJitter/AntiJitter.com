@@ -123,7 +123,7 @@ private fun LoginHero() {
             fontWeight = FontWeight.ExtraBold,
         )
         Text(
-            text = "Bond Wi-Fi and cellular into one gaming connection with seamless failovers.",
+            text = "Bond Wi-Fi and mobile data into one gaming connection with seamless failovers.",
             color = Dim,
             style = MaterialTheme.typography.bodyLarge,
             lineHeight = 22.sp,

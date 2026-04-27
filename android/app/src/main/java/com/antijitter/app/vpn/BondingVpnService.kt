@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * VPN backbone for the AntiJitter Android client.
  *
  * Flow:
- *   1. ConnectivityManager.requestNetwork() acquires Wi-Fi and Cellular [Network]s independently.
+ *   1. ConnectivityManager.requestNetwork() acquires Wi-Fi and mobile data [Network]s independently.
  *   2. For each, probe the bonding server list to find a reachable host:port pair.
  *   3. Build the TUN with VpnService.Builder using the WireGuard peer IP.
  *   4. Start [BondingClient] listening on 127.0.0.1:<ephemeral>.
@@ -211,10 +211,10 @@ class BondingVpnService : VpnService() {
         client.setMode(pendingMode)
 
         // Register persistent monitors per transport. onAvailable adds or replaces the path;
-        // onLost removes it. This is what makes Wi-Fi / cellular drops auto-recover without
+        // onLost removes it. This is what makes Wi-Fi / mobile-data drops auto-recover without
         // requiring the user to toggle Game Mode off and on.
         startPathMonitor(nb, client, servers, NetworkCapabilities.TRANSPORT_WIFI, "Wi-Fi", isCellular = false)
-        startPathMonitor(nb, client, servers, NetworkCapabilities.TRANSPORT_CELLULAR, "Cellular", isCellular = true)
+        startPathMonitor(nb, client, servers, NetworkCapabilities.TRANSPORT_CELLULAR, "Mobile data", isCellular = true)
 
         // Wait up to 8s for at least one path to become active before we bring up WireGuard.
         // Otherwise the tunnel would come up with zero paths and drop every packet.
@@ -223,7 +223,7 @@ class BondingVpnService : VpnService() {
             delay(200)
         }
         if (client.stats().paths.none { it.active }) {
-            throw IllegalStateException("No bonding paths reachable after 8s (check Wi-Fi / cellular)")
+            throw IllegalStateException("No bonding paths reachable after 8s (check Wi-Fi / mobile data)")
         }
 
         // Detach so wireguard-go owns the fd; the PFD we kept for reference is now empty.
@@ -293,7 +293,7 @@ class BondingVpnService : VpnService() {
 
     /**
      * Tells the system which physical Networks the VPN is layered over. Two effects:
-     *  - Both Wi-Fi and Cellular icons appear in the status bar (Android marks both as
+     *  - Both Wi-Fi and mobile data icons appear in the status bar (Android marks both as
      *    "in use by an app"), matching the Speedify behaviour.
      *  - Tethered traffic and metering are attributed correctly, which on Android 12+
      *    makes the VPN actually apply to hotspot clients (combined with the user
@@ -339,7 +339,7 @@ class BondingVpnService : VpnService() {
         val mbUp = stats.totalBytesUp / 1024 / 1024
         val mbDown = stats.totalBytesDown / 1024 / 1024
         val title = "Game Mode active — $activePaths path${if (activePaths == 1) "" else "s"}"
-        val body = "↑ ${mbUp} MB · ↓ ${mbDown} MB · cellular ${stats.cellularBytesUp / 1024 / 1024} MB"
+        val body = "↑ ${mbUp} MB · ↓ ${mbDown} MB · mobile ${stats.cellularBytesUp / 1024 / 1024} MB"
         val nm = getSystemService(NotificationManager::class.java)
         nm?.notify(NOTIF_ID, buildNotification(title, body))
     }
