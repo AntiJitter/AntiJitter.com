@@ -21,6 +21,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -28,6 +31,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +68,8 @@ fun HomeScreen(
     error: String?,
     onToggle: () -> Unit,
     onSignOut: () -> Unit,
+    onOpenVpnSettings: () -> Unit,
+    onOpenHotspotSettings: () -> Unit,
     // BEGIN DEV-TOGGLE (route-all) - remove for production
     routeAllTraffic: Boolean,
     onRouteAllTrafficChange: (Boolean) -> Unit,
@@ -69,6 +77,7 @@ fun HomeScreen(
 ) {
     val tunnelActive = status.state == BondingVpnService.State.CONNECTED ||
         status.state == BondingVpnService.State.CONNECTING
+    var showShareDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -104,7 +113,7 @@ fun HomeScreen(
             )
             ModeSelectorCard(selected = tunnelMode, onSelect = onTunnelModeChange)
             ActivePathsCard(bondedPaths = stats?.paths.orEmpty(), pathLatency = pathLatency)
-            SessionSummaryCard(stats = stats)
+            SessionSummaryCard(stats = stats, onShareGameMode = { showShareDialog = true })
             // BEGIN DEV-TOGGLE (route-all) - remove for production
             DevRouteAllRow(
                 enabled = routeAllTraffic,
@@ -112,6 +121,13 @@ fun HomeScreen(
                 tunnelActive = tunnelActive,
             )
             // END DEV-TOGGLE
+        }
+        if (showShareDialog) {
+            ShareGameModeDialog(
+                onDismiss = { showShareDialog = false },
+                onOpenHotspotSettings = onOpenHotspotSettings,
+                onOpenVpnSettings = onOpenVpnSettings,
+            )
         }
     }
 }
@@ -288,12 +304,12 @@ private fun ModeSelectorCard(
     onSelect: (BondingClient.Mode) -> Unit,
 ) {
     val description = when (selected) {
-        BondingClient.Mode.GAMING -> "Every packet uses every active path. Best for games and voice."
-        BondingClient.Mode.BROWSING -> "Wi-Fi first, mobile data as backup. Better for saving data."
+        BondingClient.Mode.GAMING -> "Best for games: every packet uses both paths."
+        BondingClient.Mode.BROWSING -> "Saves mobile data: Wi-Fi first, mobile backup."
     }
-    AppCard {
+    AppCard(contentPadding = 14.dp) {
         Text("MODE", color = Dim, style = MaterialTheme.typography.labelSmall)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -314,7 +330,7 @@ private fun ModeSelectorCard(
                 modifier = Modifier.weight(1f),
             )
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Text(description, color = Dim, style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -335,7 +351,7 @@ private fun ModeChip(
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .clickable { onClick() }
-            .padding(vertical = 10.dp),
+            .padding(vertical = 9.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -469,16 +485,23 @@ private fun PathRow(path: PathDisplay) {
 }
 
 @Composable
-private fun SessionSummaryCard(stats: BondingClient.Stats?) {
-    AppCard {
-        Text("SESSION", color = Dim, style = MaterialTheme.typography.labelSmall)
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
+private fun SessionSummaryCard(
+    stats: BondingClient.Stats?,
+    onShareGameMode: () -> Unit,
+) {
+    AppCard(contentPadding = 14.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("SESSION", color = Dim, style = MaterialTheme.typography.labelSmall)
+            CompactAction(label = "Share Game Mode", onClick = onShareGameMode)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             SummaryMetric("Sent", formatBytes(stats?.totalBytesUp ?: 0L), Modifier.weight(1f))
             SummaryMetric("Received", formatBytes(stats?.totalBytesDown ?: 0L), Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
             SummaryMetric("Mobile", formatBytes(stats?.cellularBytesUp ?: 0L), Modifier.weight(1f))
             SummaryMetric("Failovers", "--", Modifier.weight(1f))
         }
@@ -488,21 +511,87 @@ private fun SessionSummaryCard(stats: BondingClient.Stats?) {
 @Composable
 private fun SummaryMetric(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = Dim, style = MaterialTheme.typography.bodySmall)
-        Text(value, color = White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+        Text(label, color = Dim, style = MaterialTheme.typography.labelSmall)
+        Text(value, color = White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
     }
 }
 
 @Composable
-private fun AppCard(content: @Composable ColumnScope.() -> Unit) {
+private fun CompactAction(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Teal.copy(alpha = 0.10f))
+            .border(BorderStroke(1.dp, Teal.copy(alpha = 0.22f)), RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = Teal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun AppCard(
+    contentPadding: androidx.compose.ui.unit.Dp = 18.dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
             .background(Surface.copy(alpha = 0.96f))
             .border(BorderStroke(1.dp, Border), RoundedCornerShape(24.dp))
-            .padding(18.dp),
+            .padding(contentPadding),
         content = content,
+    )
+}
+
+@Composable
+private fun ShareGameModeDialog(
+    onDismiss: () -> Unit,
+    onOpenHotspotSettings: () -> Unit,
+    onOpenVpnSettings: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface,
+        titleContentColor = White,
+        textContentColor = Dim,
+        title = { Text("Share Game Mode", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Use Android hotspot to share AntiJitter with an Xbox, PC, Steam Deck, or PlayStation.")
+                Text("For best hotspot routing, enable Always-on VPN. If traffic still bypasses AntiJitter, turn on Block connections without VPN.")
+                Text("That strict mode can block internet when AntiJitter is disconnected, so keep it for hotspot sessions.")
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onDismiss()
+                    onOpenVpnSettings()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Color.Black),
+            ) {
+                Text("VPN settings", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = {
+                        onDismiss()
+                        onOpenHotspotSettings()
+                    },
+                ) {
+                    Text("Hotspot settings", color = Teal)
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Done", color = Dim)
+                }
+            }
+        },
     )
 }
 

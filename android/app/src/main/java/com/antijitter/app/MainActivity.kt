@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,7 +66,12 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize().background(Black)) {
                     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                         val vm: AppViewModel = viewModel()
-                        AppRoot(vm = vm, onRequestVpnPermission = ::requestVpnPermission)
+                        AppRoot(
+                            vm = vm,
+                            onRequestVpnPermission = ::requestVpnPermission,
+                            onOpenVpnSettings = ::openVpnSettings,
+                            onOpenHotspotSettings = ::openHotspotSettings,
+                        )
                     }
                 }
             }
@@ -85,12 +91,33 @@ class MainActivity : ComponentActivity() {
             BondingVpnService.start(this, configJson, mode)
         }
     }
+
+    private fun openVpnSettings() {
+        openSystemSettings(Settings.ACTION_VPN_SETTINGS)
+    }
+
+    private fun openHotspotSettings() {
+        openSystemSettings(ACTION_TETHER_SETTINGS, Settings.ACTION_WIRELESS_SETTINGS)
+    }
+
+    private fun openSystemSettings(action: String, fallback: String = Settings.ACTION_SETTINGS) {
+        val opened = runCatching { startActivity(Intent(action)) }.isSuccess
+        if (!opened) {
+            runCatching { startActivity(Intent(fallback)) }
+        }
+    }
+
+    companion object {
+        private const val ACTION_TETHER_SETTINGS = "android.settings.TETHER_SETTINGS"
+    }
 }
 
 @Composable
 private fun AppRoot(
     vm: AppViewModel,
     onRequestVpnPermission: (String, BondingClient.Mode) -> Unit,
+    onOpenVpnSettings: () -> Unit,
+    onOpenHotspotSettings: () -> Unit,
 ) {
     val ui by vm.ui.collectAsState()
     val vpnStatus by BondingVpnService.status.collectAsState()
@@ -129,6 +156,8 @@ private fun AppRoot(
             error = ui.error,
             onToggle = { vm.toggleTunnel(vpnStatus) },
             onSignOut = { vm.signOut() },
+            onOpenVpnSettings = onOpenVpnSettings,
+            onOpenHotspotSettings = onOpenHotspotSettings,
             // BEGIN DEV-TOGGLE (route-all) — remove for production
             routeAllTraffic = ui.routeAllTraffic,
             onRouteAllTrafficChange = { vm.setRouteAllTraffic(it) },
