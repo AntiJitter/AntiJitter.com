@@ -172,6 +172,12 @@ Track every change here so the Android port is a translation, not a redesign.
 - Removed the "How it works" `HelpCard` from the main screen — to be moved to a future Settings → About link.
 - DEV route-all toggle stays at the bottom, anchored with the same `BEGIN/END DEV-TOGGLE` comment markers for easy removal.
 
+### 2026-04-23 — Android: dual-icon + tethering parity with Speedify
+- `VpnService.setUnderlyingNetworks(...)` now called whenever a path is added or removed. This is what makes Android show **both Wi-Fi and Cellular icons** simultaneously in the status bar — the same effect Speedify produces. Without it, the system only attributes traffic to whichever transport happens to be the default route.
+- `VpnService.Builder.setMetered(false)` declared on the TUN. Tethered apps no longer get background-throttled because of how Android attributes our VPN's metering. Cellular's metering still flows through via the underlying-networks call so the data-cap accounting stays correct.
+- `BondingClient.activeNetworks()` exposes the current underlying `Network` array.
+- These two together are also the prerequisite for tethered devices to actually go through the bonded tunnel on Android 12+ — combined with the user enabling **Always-on VPN + Block connections without VPN** in Android Settings → Network → VPN. We can't enable that flag from inside the app; it's a system permission.
+
 ### 2026-04-23 — Bonding: Gaming vs Browsing mode
 Two send strategies on the same WireGuard tunnel:
 

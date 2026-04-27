@@ -158,6 +158,17 @@ class BondingClient(
 
     fun hasPath(name: String): Boolean = synchronized(pathsLock) { paths.any { it.name == name } }
 
+    /**
+     * Returns the underlying [Network] objects this client is currently sending packets through.
+     * Used by [com.antijitter.app.vpn.BondingVpnService.setUnderlyingNetworks] so Android knows
+     * the VPN is layered on top of these — surfaces both Wi-Fi and Cellular icons in the status
+     * bar and lets the system attribute traffic for metering.
+     */
+    fun activeNetworks(): Array<Network> {
+        val snapshot = synchronized(pathsLock) { paths.toList() }
+        return snapshot.filter { it.active }.map { it.network }.toTypedArray()
+    }
+
     private fun probe(socket: DatagramSocket): Boolean {
         val probeBytes = Protocol.buildProbe()
         val recv = ByteArray(64)
