@@ -81,16 +81,71 @@ Use these phrases consistently across web, Android, marketing, and notifications
 | A network handing off (cell tower change, Starlink satellite swap) | **Handoff** | "switch", "drop" |
 | Latency variance | **Jitter** | "ping variation" |
 
+## Speedify references (what to steal vs skip)
+
+We've benchmarked against Speedify's mobile UI. Adopt the mental model where it's better than ours, ignore the parts that come from being a generic VPN tool.
+
+**Adopt:**
+- Top-bar Game Mode toggle as a Switch in a tinted card, not a giant green button. Saves vertical space and matches how users mentally model "VPN apps".
+- One-liner per path: `[●] Wi-Fi    3.2 MB    412 pkts`. Dense, glanceable.
+- Speedify's terminology where it overlaps (Bonding mode, Failover, etc.) — see Terminology table.
+
+**Skip (we are not a generic VPN):**
+- Bypass / App Bypass / Firewall / IP Leak Protection / Internet Kill Switch / DNS Service / Encryption toggle. Settings should fit on one screen: Connect at startup, Notifications, Cellular cap, Account.
+- News & Events feed.
+- Pair & Share (interesting v2+ concept, not now).
+- Blanket "Performance Tests" page — surface `/jitter-test` link instead.
+
+**Improve on:**
+- Per-path live latency + jitter + packet loss (Speedify only shows signal bars). Real gaming metrics.
+- Active game indicator (Speedify can't show this — not gaming-focused).
+- Seamless failovers count as a hero metric, not buried in stats.
+
+## Android `HomeScreen` layout (current target)
+
+Implemented in `android/app/src/main/java/com/antijitter/app/ui/HomeScreen.kt`. Mirror this on the dashboard's mobile breakpoint.
+
+```
+┌──────────────────────────────────────┐
+│ AntíJitter             Sign out      │  Header
+├──────────────────────────────────────┤
+│ Game Mode             ─•─ Switch     │  GameModeToggleBar
+│ Bonded paths active                  │   (tinted teal when ON)
+├──────────────────────────────────────┤
+│           — ms                       │  HeroLatencyCard
+│     Measuring vs single-path…        │   (placeholder until probe RTTs)
+├──────────────────────────────────────┤
+│ ACTIVE PATHS                         │  ActivePathsCard
+│ ● Wi-Fi      3.2 MB    412 pkts      │   one-liner per path
+│ ● Cellular   1.4 MB    198 pkts      │
+├──────────────────────────────────────┤
+│ Sent                  4.6 MB         │  SessionSummaryCard
+│ Received             82.1 MB         │
+│ Cellular used         1.4 MB         │
+│ Seamless failovers        —          │
+├──────────────────────────────────────┤
+│ DEV: route ALL traffic    [switch]   │  DevRouteAllRow (anchored, removable)
+└──────────────────────────────────────┘
+```
+
 ## Components Android needs (Compose translations)
 
 | React component | Android equivalent | Status |
 |---|---|---|
-| `ConnectionCard` | `PathHealthCard` | not yet built |
-| `BondingPanel` | the existing top "Game Mode" Card on `HomeScreen` | partial |
+| `ConnectionCard` (×3) | `ActivePathsCard` (one-liner rows) | shipped |
+| `BondingPanel` toggle | `GameModeToggleBar` | shipped |
+| `BondingPanel` big stats | `HeroLatencyCard` + `SessionSummaryCard` | shipped (latency placeholder) |
 | `StarlinkPingChart` | TBD (Compose Canvas line chart) | not yet built |
-| Header tabs + status pill | top app bar | not yet built |
+| Header tabs + status pill | n/a (Android is one screen for now) | — |
 
-Android currently shows Sent/Received/Cellular bytes only — that's VPN-style metrics. Replace with: **Latency, Jitter, Packet loss, Packets saved, per-path health, current game**. Same hierarchy as web.
+## Backend gaps that block UI completion
+
+The Android UI now reserves slots for these but shows `—` until they exist:
+
+1. **Probe-based RTT per path** — `BondingClient` already sends seq=0 probes during path setup. Extend to a periodic probe (every ~2s, like the web's ping logger) and store rolling RTT + jitter per path.
+2. **Bonded latency** — derived from `min(rtt) + small overhead`, since bonding always delivers via the fastest-arriving path.
+3. **Seamless failover counter** — increment when an active path goes inactive while another stays up. Needs a hook in the path-monitor `onLost`.
+4. **Single-path baseline** — keep the slowest path's recent RTT as the "you'd be here without bonding" baseline for the delta badge.
 
 ## Changelog
 
@@ -104,3 +159,11 @@ Track every change here so the Android port is a translation, not a redesign.
 - Subtitle under `Starlink Latency` moved below the controls row on narrow viewports (no longer stacked next to title on mobile).
 - BondingPanel small stat `Failovers caught` → `Seamless failovers` (Speedify-style framing). Added Terminology table to lock this and other phrasing across surfaces.
 - `StarlinkPingChart` simulation rewritten: Game Mode line now `min(starlink, baseline*1.10)` continuously, not only during 4× spikes. Baseline can be computed from as few as 3 trailing samples, with a global-floor fallback so the line diverges from the first sample. The previous behaviour overlapped completely until enough history accumulated, which looked broken even when the chart showed an obvious spike.
+
+### 2026-04-23 — Android HomeScreen Speedify-inspired redesign
+- Replaced the giant "Turn on Game Mode" button with a top-bar Switch in a tinted card (`GameModeToggleBar`). Tints teal when ON, dim when OFF.
+- New `HeroLatencyCard` reserves a 48 sp bonded-latency slot (currently `—` — needs probe-based RTT measurement in `BondingClient`).
+- Per-path stats compressed into one-liner rows (`ActivePathsCard`): `[● dot] [name] [bytes sent] [packets]`. Dropped the previous three-row card per path.
+- New `SessionSummaryCard` carries Sent / Received / Cellular used / Seamless failovers in a label-value layout matching the dashboard's small-stat strip.
+- Removed the "How it works" `HelpCard` from the main screen — to be moved to a future Settings → About link.
+- DEV route-all toggle stays at the bottom, anchored with the same `BEGIN/END DEV-TOGGLE` comment markers for easy removal.
