@@ -24,6 +24,7 @@ import com.antijitter.app.api.ApiClient
 import com.antijitter.app.api.ApiException
 import com.antijitter.app.api.AntiJitterConfig
 import com.antijitter.app.bonding.BondingClient
+import com.antijitter.app.bonding.LatencyMonitor
 import com.antijitter.app.store.AuthStore
 import com.antijitter.app.ui.HomeScreen
 import com.antijitter.app.ui.LoginScreen
@@ -42,11 +43,12 @@ import kotlinx.serialization.json.Json
 class MainActivity : ComponentActivity() {
 
     private lateinit var pendingConfigJson: String
+    private var pendingMode: BondingClient.Mode = BondingClient.Mode.GAMING
     private val vpnPermission =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
             if (res.resultCode == Activity.RESULT_OK) {
                 android.util.Log.i("AJ.UI", "VPN consent granted, starting service")
-                BondingVpnService.start(this, pendingConfigJson)
+                BondingVpnService.start(this, pendingConfigJson, pendingMode)
             } else {
                 android.util.Log.w("AJ.UI", "VPN consent denied (resultCode=${res.resultCode})")
                 BondingVpnService.statusFlow.value = BondingVpnService.Status(
@@ -70,16 +72,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestVpnPermission(configJson: String) {
-        android.util.Log.i("AJ.UI", "requestVpnPermission: preparing VPN")
+    private fun requestVpnPermission(configJson: String, mode: BondingClient.Mode) {
+        android.util.Log.i("AJ.UI", "requestVpnPermission: preparing VPN (mode=$mode)")
         pendingConfigJson = configJson
+        pendingMode = mode
         val intent = VpnService.prepare(this)
         if (intent != null) {
             android.util.Log.i("AJ.UI", "requestVpnPermission: launching consent dialog")
             vpnPermission.launch(intent)
         } else {
             android.util.Log.i("AJ.UI", "requestVpnPermission: already granted, starting service")
-            BondingVpnService.start(this, configJson)
+            BondingVpnService.start(this, configJson, mode)
         }
     }
 }
@@ -87,11 +90,12 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppRoot(
     vm: AppViewModel,
-    onRequestVpnPermission: (String) -> Unit,
+    onRequestVpnPermission: (String, BondingClient.Mode) -> Unit,
 ) {
     val ui by vm.ui.collectAsState()
     val vpnStatus by BondingVpnService.status.collectAsState()
     val stats by vm.stats.collectAsState()
+    val pathLatency by vm.pathLatency.collectAsState()
 
     LaunchedEffect(vm) { vm.init() }
     LaunchedEffect(Unit) {
@@ -100,9 +104,9 @@ private fun AppRoot(
             vm.refreshStats()
         }
     }
-    LaunchedEffect(ui.startRequest) {
+    LaunchedEffect(ui.startRequest, ui.pendingMode) {
         val req = ui.startRequest ?: return@LaunchedEffect
-        onRequestVpnPermission(req)
+        onRequestVpnPermission(req, ui.pendingMode)
         vm.consumeStartRequest()
     }
 
@@ -118,6 +122,9 @@ private fun AppRoot(
             email = ui.email.orEmpty(),
             status = vpnStatus,
             stats = stats,
+            pathLatency = pathLatency,
+            tunnelMode = ui.tunnelMode,
+            onTunnelModeChange = { vm.setTunnelMode(it) },
             busy = ui.busy,
             error = ui.error,
             onToggle = { vm.toggleTunnel(vpnStatus) },
@@ -134,6 +141,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     private val store = AuthStore(app)
     private val api = ApiClient()
+    private val latencyMonitor = LatencyMonitor(app)
 
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
@@ -141,14 +149,22 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     private val _stats = MutableStateFlow<BondingClient.Stats?>(null)
     val stats: StateFlow<BondingClient.Stats?> = _stats.asStateFlow()
 
+    val pathLatency: StateFlow<Map<String, LatencyMonitor.PathLatency>> = latencyMonitor.state
+
     private val json = Json { encodeDefaults = true }
 
     fun init() {
+        latencyMonitor.start()
         viewModelScope.launch {
             val tok = store.token.first()
             val em = store.email.first()
             _ui.value = _ui.value.copy(token = tok, email = em)
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        latencyMonitor.stop()
     }
 
     fun login(email: String, password: String) {
@@ -202,7 +218,11 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
                 } else fetched
                 // END DEV-TOGGLE
                 val raw = json.encodeToString(AntiJitterConfig.serializer(), cfg)
-                _ui.value = _ui.value.copy(busy = false, startRequest = raw)
+                _ui.value = _ui.value.copy(
+                    busy = false,
+                    startRequest = raw,
+                    pendingMode = _ui.value.tunnelMode,
+                )
             } catch (e: ApiException) {
                 android.util.Log.w("AJ.UI", "toggleTunnel: API ${e.status}: ${e.message}")
                 if (e.status == 401) {
@@ -227,6 +247,14 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         _ui.value = _ui.value.copy(startRequest = null)
     }
 
+    fun setTunnelMode(mode: BondingClient.Mode) {
+        if (_ui.value.tunnelMode == mode) return
+        _ui.value = _ui.value.copy(tunnelMode = mode)
+        // If the tunnel is already up, push the new dispatch mode to the
+        // running BondingClient — no reconnect required.
+        BondingVpnService.setMode(getApplication(), mode)
+    }
+
     // BEGIN DEV-TOGGLE (route-all) — remove for production
     fun setRouteAllTraffic(enabled: Boolean) {
         _ui.value = _ui.value.copy(routeAllTraffic = enabled)
@@ -244,6 +272,9 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         val busy: Boolean = false,
         val error: String? = null,
         val startRequest: String? = null,
+        val tunnelMode: BondingClient.Mode = BondingClient.Mode.GAMING,
+        /** Snapshot of [tunnelMode] at the moment the start was requested, so the consent dialog uses the same mode the user was looking at. */
+        val pendingMode: BondingClient.Mode = BondingClient.Mode.GAMING,
         // BEGIN DEV-TOGGLE (route-all) — remove for production
         val routeAllTraffic: Boolean = false,
         // END DEV-TOGGLE

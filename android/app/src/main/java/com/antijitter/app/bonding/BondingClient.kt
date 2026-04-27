@@ -30,11 +30,22 @@ import java.util.concurrent.atomic.AtomicReference
 class BondingClient(
     private val protect: (DatagramSocket) -> Boolean,
 ) {
+    /**
+     * How packets are dispatched across active paths.
+     *  - [GAMING]: every packet sent on every active path. Zero spike loss, uses cellular constantly.
+     *  - [BROWSING]: prefer the non-cellular path; cellular sockets stay registered but only carry
+     *    packets when the primary is gone. Saves cellular data for users who don't need
+     *    redundancy on every packet (general web / streaming sessions).
+     */
+    enum class Mode { GAMING, BROWSING }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val seq = Sequencer()
     private val dedup = Deduplicator()
     private val paths = mutableListOf<PathRuntime>()
     private val pathsLock = Any()
+
+    @Volatile private var mode: Mode = Mode.GAMING
 
     private var localSocket: DatagramSocket? = null
     @Volatile private var localPeer: InetSocketAddress? = null
@@ -66,6 +77,15 @@ class BondingClient(
     fun setDataLimit(megabytes: Long) {
         cellularLimitBytes = if (megabytes <= 0) 0 else megabytes * 1024L * 1024L
     }
+
+    fun setMode(m: Mode) {
+        if (mode != m) {
+            Log.i(TAG, "mode change ${mode} -> $m")
+            mode = m
+        }
+    }
+
+    fun currentMode(): Mode = mode
 
     /**
      * Adds a network path. The socket is created, [protect]ed (so the kernel
@@ -177,8 +197,8 @@ class BondingClient(
             totalBytesUp.addAndGet(pkt.length.toLong())
 
             val snapshot = synchronized(pathsLock) { paths.toList() }
-            for (path in snapshot) {
-                if (!path.active) continue
+            val targets = pickTargets(snapshot)
+            for (path in targets) {
                 if (path.cellular && cellularLimitBytes > 0 && cellularBytesUp.get() >= cellularLimitBytes) {
                     path.active = false
                     Log.w(TAG, "${path.name}: 4G data cap reached, disabling")
@@ -192,6 +212,23 @@ class BondingClient(
                 } catch (t: Throwable) {
                     Log.w(TAG, "${path.name}: send failed: ${t.message}")
                 }
+            }
+        }
+    }
+
+    /**
+     * Decides which active paths get a copy of each packet.
+     * GAMING: all of them. BROWSING: just the non-cellular primary, cellular only as a
+     * fallback when the primary is unavailable.
+     */
+    private fun pickTargets(snapshot: List<PathRuntime>): List<PathRuntime> {
+        val active = snapshot.filter { it.active }
+        return when (mode) {
+            Mode.GAMING -> active
+            Mode.BROWSING -> {
+                val primary = active.firstOrNull { !it.cellular }
+                if (primary != null) listOf(primary)
+                else active // primary down — fall back to whatever's active (cellular)
             }
         }
     }

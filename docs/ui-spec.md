@@ -77,9 +77,13 @@ Use these phrases consistently across web, Android, marketing, and notifications
 | One UDP packet duplicated across paths and the dupe dropped on arrival | (don't expose to user) | "packets saved", "redundant packets" |
 | A moment when one path dropped and the tunnel kept going on the other(s) | **Seamless failover** | "failover caught", "outage avoided", "connection rescued" |
 | The combined Wi-Fi + cellular tunnel | **Bonded connection** / **Game Mode** | "VPN", "tunnel" (in user copy) |
+| The tunnel master on/off control | **Game Mode** | (don't change — brand name) |
+| Send-strategy: every packet on every path | **Gaming** | "Redundant", "Duplicate" |
+| Send-strategy: primary only, cellular as failover | **Browsing** | "Failover", "Backup", "Standby" |
 | Each underlying network (Wi-Fi, cellular, Starlink) | **Path** | "interface", "link" |
 | A network handing off (cell tower change, Starlink satellite swap) | **Handoff** | "switch", "drop" |
 | Latency variance | **Jitter** | "ping variation" |
+| Locking in low-latency state | **Lock in** | "guarantee", "ensure" |
 
 ## Speedify references (what to steal vs skip)
 
@@ -167,6 +171,25 @@ Track every change here so the Android port is a translation, not a redesign.
 - New `SessionSummaryCard` carries Sent / Received / Cellular used / Seamless failovers in a label-value layout matching the dashboard's small-stat strip.
 - Removed the "How it works" `HelpCard` from the main screen — to be moved to a future Settings → About link.
 - DEV route-all toggle stays at the bottom, anchored with the same `BEGIN/END DEV-TOGGLE` comment markers for easy removal.
+
+### 2026-04-23 — Bonding: Gaming vs Browsing mode
+Two send strategies on the same WireGuard tunnel:
+
+- **Gaming** — every packet sent on every active path. Zero spike loss. Cellular data climbs at full duplication rate. Use for live games and voice.
+- **Browsing** — non-cellular path is the primary; cellular sockets stay registered but only carry traffic when the primary is unavailable. Brief reconnect blip during a Wi-Fi drop is acceptable, cellular cap is preserved.
+
+Implementation: `BondingClient.Mode` enum + `pickTargets()` on every outbound packet. `BondingVpnService` accepts the mode at start (`EXTRA_TUNNEL_MODE`) and via a new `ACTION_SET_MODE` intent for live changes — no reconnect needed when the user switches in the UI.
+
+UI: a `ModeSelectorCard` (segmented Gaming / Browsing pill) below the Game Mode toggle. Active mode is teal-tinted; under the selector a one-line description tells the user what each mode actually does to their cellular usage.
+
+Terminology table updated — "Gaming" and "Browsing" are user-facing mode names; "Game Mode" remains the brand name for the master toggle (the bonded tunnel itself).
+
+### 2026-04-23 — Android: per-path latency from launch
+- New `LatencyMonitor` (Kotlin, `bonding/`) probes Wi-Fi and Cellular every 2 s with TCP connect time to `1.1.1.1:443`. Sockets are bound to a `NET_CAPABILITY_NOT_VPN` Network so probes go through the physical interface even when our own tunnel is up. Rolling stddev over 30 samples gives jitter.
+- `AppViewModel` owns the monitor lifecycle (`init` → start, `onCleared` → stop) and exposes `pathLatency` as a `StateFlow<Map<String, PathLatency>>`.
+- `HomeScreen` now shows per-path latency before Game Mode is on. `ActivePathsCard` rows: `[●] Wi-Fi   23 ms   ±2 ms`. When Game Mode is on, a second line under each row carries `bytes · packets` from the bonded stats. Card label is "ACTIVE PATHS" regardless of tunnel state — they're active networks, not active bonded paths.
+- `HeroLatencyCard` shows `min(rtt across measured paths)` as the live number. Title flips between "BEST PATH LATENCY" (off) and "BONDED LATENCY" (on). Subtitle copy advertises the saved-vs-slowest-path delta when Game Mode is on. Number colour follows the latency ramp (green/teal/orange/red).
+- This is an approximation of bonded latency (real measurement requires through-tunnel probes; tracked under "Backend gaps" in the spec). It gives the user something live and meaningful from the moment the app opens.
 
 ### 2026-04-23 — Dashboard parity pass
 Brings the web in line with the Android visual rhythm. Same card shapes, same density, same labels.
