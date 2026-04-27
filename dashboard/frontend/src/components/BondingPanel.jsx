@@ -5,12 +5,17 @@ const EXPLANATION =
   "Game Mode sends every packet through all your connections simultaneously for zero-spike gaming. " +
   "Turn off for downloads, game updates, and streaming to use full available bandwidth.";
 
-export default function BondingPanel({ bonded, packetsRouted, totalFailovers, uptimeSeconds, isSubscribed = true }) {
+export default function BondingPanel({ bonded, packetsRouted, totalFailovers, uptimeSeconds, isSubscribed = true, starlinkSamples = [] }) {
   const [gameMode, setGameMode] = useState(true);
   const [showUpsell, setShowUpsell] = useState(false);
   const uptime = formatUptime(uptimeSeconds ?? 0);
 
   const locked = !isSubscribed;
+  const starlinkBaselineMs = computeStarlinkBaseline(starlinkSamples);
+  const delta =
+    bonded?.latency_ms != null && starlinkBaselineMs != null
+      ? Math.round((starlinkBaselineMs - bonded.latency_ms) * 10) / 10
+      : null;
 
   function handleToggle() {
     if (locked) {
@@ -140,13 +145,17 @@ export default function BondingPanel({ bonded, packetsRouted, totalFailovers, up
       {/* ── Live stats (subscribed + game mode ON) ── */}
       {!locked && gameMode && (
         <>
-          <BigStat label="Latency" value={bonded?.latency_ms != null ? `${bonded.latency_ms} ms` : "—"} />
+          <BigStat
+            label="Latency"
+            value={bonded?.latency_ms != null ? `${bonded.latency_ms} ms` : "—"}
+            badge={delta != null && delta > 0 ? `−${delta} ms vs Starlink alone` : null}
+          />
           <BigStat label="Packet loss" value={bonded?.packet_loss_pct != null ? `${bonded.packet_loss_pct}%` : "—"} />
           <BigStat label="Throughput" value={bonded?.throughput_mbps != null ? `${bonded.throughput_mbps} Mbps` : "—"} />
           <div style={{ borderTop: "1px solid rgba(0,200,215,0.15)", marginTop: 14, paddingTop: 14 }}>
             <SmallStat label="Uptime"          value={uptime} />
             <SmallStat label="Packets routed"  value={packetsRouted != null ? packetsRouted.toLocaleString() : "—"} />
-            <SmallStat label="Failovers caught" value={totalFailovers ?? "—"} />
+            <SmallStat label="Seamless failovers" value={totalFailovers ?? "—"} />
           </div>
         </>
       )}
@@ -195,17 +204,43 @@ export default function BondingPanel({ bonded, packetsRouted, totalFailovers, up
   );
 }
 
-function BigStat({ label, value }) {
+function BigStat({ label, value, badge }) {
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: 11, color: "rgba(0,200,215,0.6)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
         {label}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: "var(--teal)", fontVariantNumeric: "tabular-nums" }}>
-        {value}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 22, fontWeight: 700, color: "var(--teal)", fontVariantNumeric: "tabular-nums" }}>
+          {value}
+        </span>
+        {badge && (
+          <span style={{
+            fontSize: 10, fontWeight: 700, letterSpacing: "0.03em",
+            color: "var(--teal)",
+            background: "rgba(0,200,215,0.12)",
+            border: "1px solid rgba(0,200,215,0.25)",
+            borderRadius: 6, padding: "2px 7px",
+            fontVariantNumeric: "tabular-nums",
+          }}>
+            {badge}
+          </span>
+        )}
       </div>
     </div>
   );
+}
+
+function computeStarlinkBaseline(samples) {
+  if (!samples || samples.length < 8) return null;
+  const cutoff = Date.now() - 5 * 60 * 1000;
+  const recent = samples.filter((s) => {
+    const ts = s.ts instanceof Date ? s.ts.getTime() : new Date(s.ts).getTime();
+    return ts >= cutoff;
+  });
+  const pool = recent.length >= 8 ? recent : samples;
+  const sorted = pool.map((s) => s.latency_ms).sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length * 0.5)];
 }
 
 function SmallStat({ label, value }) {

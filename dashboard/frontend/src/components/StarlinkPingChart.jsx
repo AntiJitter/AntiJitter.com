@@ -11,11 +11,17 @@ import {
 import { useMemo, useState } from "react";
 
 const DISPLAY_CAP     = 200;
-const SPIKE_MULT      = 4;
-const SPIKE_ABS_MIN   = 100;
 const HANDOFF_ABS_MIN = 300;
 const BASELINE_WINDOW = 90;
 const BASELINE_PCT    = 0.20;
+const MIN_BASELINE_SAMPLES = 3;
+// Game Mode cap = baseline * this. ~10% overhead is realistic for an extra
+// encrypted hop through the bonding server.
+const GAME_MODE_OVERHEAD = 1.10;
+// Only flag a point as a spike on the chart once it's this much above the
+// floor — used for handoff markers, not for the simulated line.
+const SPIKE_MULT      = 4;
+const SPIKE_ABS_MIN   = 100;
 
 // Switch to bucket mode once there are more raw points than this
 const RAW_MAX = 150;
@@ -32,20 +38,40 @@ const TIME_WINDOWS = [
 function buildRawData(samples) {
   if (!samples.length) return { data: [], stats: null, bucketed: false };
 
+  // Seed a global floor from the whole sample set so early points already get
+  // a meaningful Game Mode cap instead of overlapping until enough history
+  // accumulates. Real bonding delivers min(path_latencies) continuously —
+  // the simulation should reflect that from the first sample.
+  const allSortedMs = samples.map((s) => s.latency_ms).sort((a, b) => a - b);
+  const globalFloor = allSortedMs.length
+    ? allSortedMs[Math.floor(allSortedMs.length * BASELINE_PCT)]
+    : null;
+
   const data = samples.map((s, i) => {
     const win = samples
       .slice(Math.max(0, i - BASELINE_WINDOW), i)
       .map((x) => x.latency_ms)
       .sort((a, b) => a - b);
-    const baseline =
-      win.length >= 8 ? win[Math.floor(win.length * BASELINE_PCT)] : null;
+    const localBaseline =
+      win.length >= MIN_BASELINE_SAMPLES ? win[Math.floor(win.length * BASELINE_PCT)] : null;
+    // Prefer the trailing window so the line reacts to recent changes, but
+    // fall back to the full-sample floor before we have enough history.
+    const baseline = localBaseline ?? globalFloor;
 
     const isSpike =
       baseline !== null &&
       s.latency_ms > baseline * SPIKE_MULT &&
       s.latency_ms > SPIKE_ABS_MIN;
     const isHandoff = isSpike && s.latency_ms > HANDOFF_ABS_MIN;
-    const gameMode   = isSpike && baseline ? baseline * 1.05 : s.latency_ms;
+
+    // Game Mode always caps at floor + overhead — min(starlink, cap). During
+    // quiet times starlink <= cap so lines overlap; during any elevation
+    // starlink > cap and the teal line visibly diverges below.
+    const gameMode =
+      baseline != null
+        ? Math.min(s.latency_ms, baseline * GAME_MODE_OVERHEAD)
+        : s.latency_ms;
+
     const starlink   = Math.round(s.latency_ms * 10) / 10;
     const gm         = Math.round(gameMode    * 10) / 10;
 
@@ -205,19 +231,15 @@ export default function StarlinkPingChart({ samples }) {
     <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "20px 24px" }}>
 
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-        <div>
-          <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--white)", margin: 0 }}>
-            Starlink Latency
-          </h3>
-          <p style={{ fontSize: 12, color: "var(--dim)", marginTop: 4, marginBottom: 0 }}>
-            {bucketed
-              ? "Showing percentile bands per interval — orange = p75, teal = p25"
-              : "Measured from your browser every 2 s"}
-          </p>
-        </div>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        gap: 12, flexWrap: "wrap", marginBottom: 6,
+      }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--white)", margin: 0 }}>
+          Starlink Latency
+        </h3>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginLeft: "auto" }}>
           <div style={{ display: "flex", gap: 4 }}>
             {TIME_WINDOWS.map(({ label, minutes }) => (
               <button key={label} onClick={() => setWindowMin(minutes)} style={{
@@ -241,37 +263,62 @@ export default function StarlinkPingChart({ samples }) {
         </div>
       </div>
 
-      {/* Stats */}
-      {stats && (
-        <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
-          <StatPill label={bucketed ? "Median" : "Avg"} value={`${stats.avg} ms`} />
-          <StatPill
-            label="Jitter"
-            value={`±${stats.jitter} ms`}
-            color={stats.jitter > 15 ? "var(--orange)" : "var(--white)"}
-          />
-          {!bucketed && (
-            <StatPill
-              label="Handoffs"
-              value={stats.handoffs}
-              color={stats.handoffs > 0 ? "var(--red)" : "var(--dim)"}
-            />
-          )}
-          <StatPill label="Samples" value={stats.samples.toLocaleString()} />
-        </div>
-      )}
+      <p style={{ fontSize: 11, color: "var(--dim)", margin: "0 0 12px 0" }}>
+        {bucketed
+          ? "Showing percentile bands per interval — orange = p75, teal = p25"
+          : "Measured from your browser every 2 s"}
+      </p>
 
-      {/* Legend */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
-        <LegendItem color="#ff9f0a" label={bucketed ? "Starlink (p75)" : "Starlink"} />
-        <LegendItem color="var(--teal)" label={bucketed ? "Game Mode (p25)" : "With Game Mode"} dashed />
-        {!bucketed && stats?.handoffs > 0 && (
-          <span style={{ fontSize: 11, color: "#ff453a", display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ display: "inline-block", width: 12, borderTop: "1.5px dashed #ff453a" }} />
-            Satellite handoff
-          </span>
-        )}
-      </div>
+      {/* Stats */}
+      {stats && (() => {
+        const lowConfidence = stats.samples < 8;
+        const linesOverlap = !bucketed && data.length > 0 && data.every(
+          (d) => Math.abs(d.starlink - d.gameMode) < 0.05,
+        );
+        return (
+          <>
+            <div style={{ display: "flex", gap: 20, marginBottom: 6, flexWrap: "wrap" }}>
+              <StatPill label={bucketed ? "Median" : "Avg"} value={`${stats.avg} ms`} />
+              <StatPill
+                label="Jitter"
+                value={lowConfidence ? "—" : `±${stats.jitter} ms`}
+                color={lowConfidence ? "var(--dim)" : (stats.jitter > 15 ? "var(--orange)" : "var(--white)")}
+              />
+              {!bucketed && (
+                <StatPill
+                  label="Handoffs"
+                  value={stats.handoffs}
+                  color={stats.handoffs > 0 ? "var(--red)" : "var(--dim)"}
+                />
+              )}
+              <StatPill label="Samples" value={stats.samples.toLocaleString()} />
+            </div>
+            {lowConfidence && (
+              <p style={{ fontSize: 11, color: "var(--dim)", margin: "0 0 10px 0", fontStyle: "italic" }}>
+                Collecting samples — jitter shown once we have at least 8.
+              </p>
+            )}
+
+            {/* Legend */}
+            <div style={{ display: "flex", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
+              <LegendItem color="#ff9f0a" label={bucketed ? "Starlink (p75)" : "Starlink"} />
+              <LegendItem color="var(--teal)" label={bucketed ? "Game Mode (p25)" : "With Game Mode"} dashed />
+              {!bucketed && stats?.handoffs > 0 && (
+                <span style={{ fontSize: 11, color: "#ff453a", display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ display: "inline-block", width: 12, borderTop: "1.5px dashed #ff453a" }} />
+                  Satellite handoff
+                </span>
+              )}
+            </div>
+
+            {linesOverlap && !lowConfidence && (
+              <p style={{ fontSize: 11, color: "var(--dim)", margin: "0 0 8px 0", fontStyle: "italic" }}>
+                Lines overlap when there are no spikes — Game Mode diverges during latency peaks.
+              </p>
+            )}
+          </>
+        );
+      })()}
 
       {data.length === 0 ? (
         <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--dim)", fontSize: 13 }}>

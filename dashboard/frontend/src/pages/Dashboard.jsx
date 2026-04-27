@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import ActivePathsCard from "../components/ActivePathsCard";
 import BondingPanel from "../components/BondingPanel";
-import ConnectionCard from "../components/ConnectionCard";
 import FailoverLog from "../components/FailoverLog";
 import LatencyChart from "../components/LatencyChart";
 import OutageTimeline from "../components/OutageTimeline";
@@ -83,7 +83,7 @@ export default function Dashboard() {
               transition: "background 0.3s",
             }} />
             <span style={{ fontSize: 12, color: "var(--dim)" }}>
-              {connected ? "Live" : "Reconnecting…"}
+              {connected ? "Connected" : "Reconnecting…"}
             </span>
           </div>
 
@@ -125,16 +125,17 @@ export default function Dashboard() {
               <StarlinkPingChart samples={pingSamples} />
             </div>
 
-            {/* Row 1: Connection cards + Bonding panel */}
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
+            {/* Row 1: Active paths (one-liner rows) + Game Mode panel */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) minmax(0, 320px)",
+              gap: 14,
+              marginBottom: 18,
+            }}>
               {conns ? (
-                <>
-                  <ConnectionCard {...cardProps(conns.starlink)} />
-                  <ConnectionCard {...cardProps(conns["4g"])} />
-                  <ConnectionCard {...cardProps(conns["5g"])} />
-                </>
+                <ActivePathsCard paths={pathsFromConns(conns)} />
               ) : (
-                <SkeletonCards />
+                <SkeletonPathsCard />
               )}
               <BondingPanel
                 bonded={status?.bonded}
@@ -142,6 +143,7 @@ export default function Dashboard() {
                 totalFailovers={status?.total_failovers}
                 uptimeSeconds={status?.uptime_seconds}
                 isSubscribed={isSubscribed}
+                starlinkSamples={pingSamples}
               />
             </div>
 
@@ -171,15 +173,22 @@ export default function Dashboard() {
   );
 }
 
-function cardProps(c) {
-  return {
-    name: c.name,
-    icon: c.icon,
-    latency: c.latency_ms,
-    loss: c.packet_loss_pct,
-    signal: c.signal_pct,
-    status: c.status,
-  };
+// Filter out paths that aren't actually present (e.g. 5G when only 4G is up)
+// and pass the rest through to ActivePathsCard. Speedify shows every possible
+// transport regardless; we hide ones the backend marks inactive so the panel
+// only lists what's really carrying traffic.
+function pathsFromConns(conns) {
+  return ["starlink", "4g", "5g"]
+    .map((k) => conns[k])
+    .filter((c) => c && c.status !== "inactive")
+    .map((c) => ({
+      name:           c.name,
+      icon:           c.icon,
+      latency_ms:     c.latency_ms,
+      packet_loss_pct: c.packet_loss_pct,
+      signal_pct:     c.signal_pct,
+      status:         c.status,
+    }));
 }
 
 function GameCoverageWidget() {
@@ -250,24 +259,17 @@ function GameCoverageWidget() {
   );
 }
 
-function SkeletonCards() {
+function SkeletonPathsCard() {
   return (
     <>
-      {[0, 1, 2].map((i) => (
-        <div
-          key={i}
-          style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 12,
-            padding: "20px 24px",
-            flex: 1,
-            minWidth: 160,
-            minHeight: 120,
-            animation: "pulse 1.5s ease-in-out infinite",
-          }}
-        />
-      ))}
+      <div style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 16,
+        padding: "16px 20px",
+        minHeight: 160,
+        animation: "pulse 1.5s ease-in-out infinite",
+      }} />
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
     </>
   );
