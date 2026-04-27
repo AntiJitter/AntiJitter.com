@@ -188,6 +188,11 @@ class BondingVpnService : VpnService() {
             .addAddress(ip, prefix)
             .addDnsServer(config.wireguard.dns)
             .setMtu(1280)
+            // Tell the system the VPN itself is unmetered. Whether traffic on the
+            // underlying paths counts as metered comes from those paths via
+            // setUnderlyingNetworks below — this keeps tethered apps from being
+            // background-throttled just because we're a VPN.
+            .also { runCatching { it.setMetered(false) } }
         for (cidr in config.wireguard.allowed_ips) {
             val (route, plen) = parseCidr(cidr) ?: continue
             builder.addRoute(route, plen)
@@ -260,8 +265,6 @@ class BondingVpnService : VpnService() {
                 }
                 scope.launch {
                     try {
-                        // Drop any stale path with this name regardless of Network — the new
-                        // one supersedes it.
                         client.removePath(name)
                         val pick = BondingClient.pickReachableServer(network, ::protect, servers)
                         if (pick == null) {
@@ -269,8 +272,12 @@ class BondingVpnService : VpnService() {
                             return@launch
                         }
                         val ok = client.addPath(name, network, pick.first, pick.second, isCellular)
-                        if (ok) Log.i(TAG, "$name: path (re)joined via ${pick.first}:${pick.second}")
-                        else Log.w(TAG, "$name: addPath failed")
+                        if (ok) {
+                            Log.i(TAG, "$name: path (re)joined via ${pick.first}:${pick.second}")
+                            refreshUnderlyingNetworks()
+                        } else {
+                            Log.w(TAG, "$name: addPath failed")
+                        }
                     } finally {
                         inFlight.set(false)
                     }
@@ -279,8 +286,27 @@ class BondingVpnService : VpnService() {
             override fun onLost(network: android.net.Network) {
                 Log.i(TAG, "$name: onLost — removing path if it still matches this Network")
                 client.removePath(name, network)
+                refreshUnderlyingNetworks()
             }
         })
+    }
+
+    /**
+     * Tells the system which physical Networks the VPN is layered over. Two effects:
+     *  - Both Wi-Fi and Cellular icons appear in the status bar (Android marks both as
+     *    "in use by an app"), matching the Speedify behaviour.
+     *  - Tethered traffic and metering are attributed correctly, which on Android 12+
+     *    makes the VPN actually apply to hotspot clients (combined with the user
+     *    enabling "Always-on VPN" + "Block connections without VPN" in system settings).
+     */
+    private fun refreshUnderlyingNetworks() {
+        val nets = bonding?.activeNetworks() ?: emptyArray()
+        try {
+            setUnderlyingNetworks(if (nets.isEmpty()) null else nets)
+            Log.i(TAG, "underlying networks updated: ${nets.size}")
+        } catch (t: Throwable) {
+            Log.w(TAG, "setUnderlyingNetworks failed: ${t.message}")
+        }
     }
 
     private fun stopTunnel(reason: String) {
