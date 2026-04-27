@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antijitter.app.bonding.BondingClient
+import com.antijitter.app.bonding.LatencyMonitor
 import com.antijitter.app.ui.theme.Border
 import com.antijitter.app.ui.theme.Dim
 import com.antijitter.app.ui.theme.Green
@@ -70,6 +71,7 @@ fun HomeScreen(
     email: String,
     status: BondingVpnService.Status,
     stats: BondingClient.Stats?,
+    pathLatency: Map<String, LatencyMonitor.PathLatency>,
     busy: Boolean,
     error: String?,
     onToggle: () -> Unit,
@@ -87,10 +89,8 @@ fun HomeScreen(
     ) {
         Header(email = email, onSignOut = onSignOut)
         GameModeToggleBar(status = status, busy = busy, error = error, onToggle = onToggle)
-        HeroLatencyCard(stats = stats, status = status)
-        if (stats != null && stats.paths.isNotEmpty()) {
-            ActivePathsCard(stats.paths)
-        }
+        HeroLatencyCard(status = status, pathLatency = pathLatency)
+        ActivePathsCard(bondedPaths = stats?.paths.orEmpty(), pathLatency = pathLatency)
         if (stats != null) {
             SessionSummaryCard(stats)
         }
@@ -184,8 +184,35 @@ private fun GameModeToggleBar(
 }
 
 @Composable
-private fun HeroLatencyCard(stats: BondingClient.Stats?, status: BondingVpnService.Status) {
-    val active = status.state == BondingVpnService.State.CONNECTED && stats != null
+private fun HeroLatencyCard(
+    status: BondingVpnService.Status,
+    pathLatency: Map<String, LatencyMonitor.PathLatency>,
+) {
+    val on = status.state == BondingVpnService.State.CONNECTED
+    // Bonded delivery picks the first-arriving packet, so the bonded RTT is
+    // approximately the minimum across available paths. Until we measure
+    // through-tunnel RTT directly, this is a good live proxy.
+    val measured = pathLatency.values.filter { it.available && it.rttMs != null }
+    val bestRtt = measured.minByOrNull { it.rttMs!! }?.rttMs
+    val secondBest = measured.sortedBy { it.rttMs!! }.getOrNull(1)?.rttMs
+    val delta = if (bestRtt != null && secondBest != null) (secondBest - bestRtt).toInt() else null
+
+    val number = bestRtt?.toInt()?.toString() ?: "—"
+    val numberColor = when {
+        bestRtt == null -> Dim
+        bestRtt < 50f -> Green
+        bestRtt < 100f -> Teal
+        bestRtt < 200f -> Orange
+        else -> Red
+    }
+    val subtitle = when {
+        bestRtt == null -> "Measuring paths…"
+        on && delta != null -> "Bonded — saving up to ${delta} ms vs slowest path"
+        on -> "Bonded delivery active"
+        delta != null -> "Best path right now · turn on Game Mode to lock in"
+        else -> "Best path right now · turn on Game Mode to lock in"
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -195,15 +222,15 @@ private fun HeroLatencyCard(stats: BondingClient.Stats?, status: BondingVpnServi
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "BONDED LATENCY",
+            text = if (on) "BONDED LATENCY" else "BEST PATH LATENCY",
             color = Dim,
             style = MaterialTheme.typography.labelSmall,
         )
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
-                text = "—",
-                color = if (active) Teal else Dim,
+                text = number,
+                color = numberColor,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 48.sp,
             )
@@ -217,15 +244,59 @@ private fun HeroLatencyCard(stats: BondingClient.Stats?, status: BondingVpnServi
         }
         Spacer(Modifier.height(2.dp))
         Text(
-            text = if (active) "Measuring vs single-path baseline…" else "Turn on Game Mode to start",
+            text = subtitle,
             color = Dim,
             style = MaterialTheme.typography.bodySmall,
         )
     }
 }
 
+private data class PathDisplay(
+    val name: String,
+    val active: Boolean,
+    val rttMs: Float?,
+    val jitterMs: Float?,
+    val bytesSent: Long?,
+    val packetsSent: Long?,
+)
+
+private fun mergePaths(
+    bondedPaths: List<BondingClient.PathStats>,
+    pathLatency: Map<String, LatencyMonitor.PathLatency>,
+): List<PathDisplay> {
+    // Show one row per network the latency monitor knows about (so Wi-Fi and
+    // Cellular appear before Game Mode is on), augmented with bytes/packets
+    // from the bonding stats when available. Latency-monitor names match the
+    // bonding service path names ("Wi-Fi", "Cellular"), so the merge is direct.
+    if (pathLatency.isEmpty()) {
+        // Initial state: fall back to whatever bonding reported (may be empty too).
+        return bondedPaths.map { p ->
+            PathDisplay(p.name, p.active, null, null, p.bytesSent, p.packetsSent)
+        }
+    }
+    val order = listOf("Wi-Fi", "Cellular")
+    return order.mapNotNull { name ->
+        val lat = pathLatency[name] ?: return@mapNotNull null
+        val bonded = bondedPaths.firstOrNull { it.name == name }
+        PathDisplay(
+            name = name,
+            active = lat.available,
+            rttMs = lat.rttMs,
+            jitterMs = lat.jitterMs,
+            bytesSent = bonded?.bytesSent,
+            packetsSent = bonded?.packetsSent,
+        )
+    }
+}
+
 @Composable
-private fun ActivePathsCard(paths: List<BondingClient.PathStats>) {
+private fun ActivePathsCard(
+    bondedPaths: List<BondingClient.PathStats>,
+    pathLatency: Map<String, LatencyMonitor.PathLatency>,
+) {
+    val merged = mergePaths(bondedPaths, pathLatency)
+    if (merged.isEmpty()) return
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -239,9 +310,9 @@ private fun ActivePathsCard(paths: List<BondingClient.PathStats>) {
             style = MaterialTheme.typography.labelSmall,
         )
         Spacer(Modifier.height(10.dp))
-        paths.forEachIndexed { i, p ->
+        merged.forEachIndexed { i, p ->
             PathRow(p)
-            if (i < paths.lastIndex) {
+            if (i < merged.lastIndex) {
                 Spacer(Modifier.height(6.dp))
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Border))
                 Spacer(Modifier.height(6.dp))
@@ -251,35 +322,44 @@ private fun ActivePathsCard(paths: List<BondingClient.PathStats>) {
 }
 
 @Composable
-private fun PathRow(p: BondingClient.PathStats) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(if (p.active) Green else Dim),
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = p.name,
-            color = White,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.width(80.dp),
-        )
-        Text(
-            text = formatBytes(p.bytesSent),
-            color = Dim,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = "${p.packetsSent} pkts",
-            color = Dim,
-            style = MaterialTheme.typography.bodySmall,
-        )
+private fun PathRow(p: PathDisplay) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (p.active) Green else Dim),
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = p.name,
+                color = White,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.width(80.dp),
+            )
+            Text(
+                text = p.rttMs?.let { "${it.toInt()} ms" } ?: "—",
+                color = if (p.active) White else Dim,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = p.jitterMs?.let { "±${it.toInt()} ms" } ?: "",
+                color = Dim,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (p.bytesSent != null) {
+            Spacer(Modifier.height(2.dp))
+            Row(modifier = Modifier.padding(start = 20.dp)) {
+                Text(
+                    text = "${formatBytes(p.bytesSent)} · ${p.packetsSent ?: 0} pkts",
+                    color = Dim,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
     }
 }
 

@@ -24,6 +24,7 @@ import com.antijitter.app.api.ApiClient
 import com.antijitter.app.api.ApiException
 import com.antijitter.app.api.AntiJitterConfig
 import com.antijitter.app.bonding.BondingClient
+import com.antijitter.app.bonding.LatencyMonitor
 import com.antijitter.app.store.AuthStore
 import com.antijitter.app.ui.HomeScreen
 import com.antijitter.app.ui.LoginScreen
@@ -92,6 +93,7 @@ private fun AppRoot(
     val ui by vm.ui.collectAsState()
     val vpnStatus by BondingVpnService.status.collectAsState()
     val stats by vm.stats.collectAsState()
+    val pathLatency by vm.pathLatency.collectAsState()
 
     LaunchedEffect(vm) { vm.init() }
     LaunchedEffect(Unit) {
@@ -118,6 +120,7 @@ private fun AppRoot(
             email = ui.email.orEmpty(),
             status = vpnStatus,
             stats = stats,
+            pathLatency = pathLatency,
             busy = ui.busy,
             error = ui.error,
             onToggle = { vm.toggleTunnel(vpnStatus) },
@@ -134,6 +137,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     private val store = AuthStore(app)
     private val api = ApiClient()
+    private val latencyMonitor = LatencyMonitor(app)
 
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
@@ -141,14 +145,22 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     private val _stats = MutableStateFlow<BondingClient.Stats?>(null)
     val stats: StateFlow<BondingClient.Stats?> = _stats.asStateFlow()
 
+    val pathLatency: StateFlow<Map<String, LatencyMonitor.PathLatency>> = latencyMonitor.state
+
     private val json = Json { encodeDefaults = true }
 
     fun init() {
+        latencyMonitor.start()
         viewModelScope.launch {
             val tok = store.token.first()
             val em = store.email.first()
             _ui.value = _ui.value.copy(token = tok, email = em)
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        latencyMonitor.stop()
     }
 
     fun login(email: String, password: String) {

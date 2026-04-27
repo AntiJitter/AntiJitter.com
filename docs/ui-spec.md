@@ -168,6 +168,13 @@ Track every change here so the Android port is a translation, not a redesign.
 - Removed the "How it works" `HelpCard` from the main screen — to be moved to a future Settings → About link.
 - DEV route-all toggle stays at the bottom, anchored with the same `BEGIN/END DEV-TOGGLE` comment markers for easy removal.
 
+### 2026-04-23 — Android: per-path latency from launch
+- New `LatencyMonitor` (Kotlin, `bonding/`) probes Wi-Fi and Cellular every 2 s with TCP connect time to `1.1.1.1:443`. Sockets are bound to a `NET_CAPABILITY_NOT_VPN` Network so probes go through the physical interface even when our own tunnel is up. Rolling stddev over 30 samples gives jitter.
+- `AppViewModel` owns the monitor lifecycle (`init` → start, `onCleared` → stop) and exposes `pathLatency` as a `StateFlow<Map<String, PathLatency>>`.
+- `HomeScreen` now shows per-path latency before Game Mode is on. `ActivePathsCard` rows: `[●] Wi-Fi   23 ms   ±2 ms`. When Game Mode is on, a second line under each row carries `bytes · packets` from the bonded stats. Card label is "ACTIVE PATHS" regardless of tunnel state — they're active networks, not active bonded paths.
+- `HeroLatencyCard` shows `min(rtt across measured paths)` as the live number. Title flips between "BEST PATH LATENCY" (off) and "BONDED LATENCY" (on). Subtitle copy advertises the saved-vs-slowest-path delta when Game Mode is on. Number colour follows the latency ramp (green/teal/orange/red).
+- This is an approximation of bonded latency (real measurement requires through-tunnel probes; tracked under "Backend gaps" in the spec). It gives the user something live and meaningful from the moment the app opens.
+
 ### 2026-04-23 — Dashboard parity pass
 Brings the web in line with the Android visual rhythm. Same card shapes, same density, same labels.
 
