@@ -155,6 +155,14 @@ The Android UI now reserves slots for these but shows `—` until they exist:
 
 Track every change here so the Android port is a translation, not a redesign.
 
+### 2026-04-27 - Android Apple-style polish pass
+- Login is now a product landing/sign-in surface: dark gradient top wash, large "Lock in low latency" headline, three compact proof metrics, and a rounded sign-in panel. Account creation remains off-app for now.
+- Home screen now uses one hero `HeroConnectionCard` combining Game Mode switch, status copy, and latency number. This reduces vertical fragmentation and makes the main state obvious at a glance.
+- Card radius on Android moves to 24-28 dp for the app shell only, matching the requested Apple-style mobile feel. Dashboard card radius remains governed by the existing web spec unless explicitly changed later.
+- Active paths keep the Speedify-style dense row model, but latency is promoted as the row's primary value and bytes/packets move to supporting text. Jitter remains on the right as a quieter secondary stat.
+- Session summary moves to a 2x2 metric grid (`Sent`, `Received`, `Cellular`, `Failovers`) to reduce the old stacked table feel while keeping the same fields.
+- Copy remains minimal and user-facing: "Game Mode", "Gaming", "Browsing", "Active paths", and "Seamless failovers" are unchanged.
+
 ### 2026-04-23 — initial spec + dashboard fixes
 - Status pill renamed `Live` → `Connected` (no longer collides with tab).
 - Jitter shows `—` with "Collecting samples…" note when `samples < 8`.
