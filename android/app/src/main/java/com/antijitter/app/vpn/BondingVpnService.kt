@@ -197,8 +197,9 @@ class BondingVpnService : VpnService() {
             val (route, plen) = parseCidr(cidr) ?: continue
             builder.addRoute(route, plen)
         }
-        // Make sure our own UDP sockets to the bonding server don't loop back through the TUN.
-        builder.addDisallowedApplication(packageName)
+        // Keep AntiJitter's UID inside the VPN scope. The external bonding UDP sockets
+        // are excluded per socket with VpnService.protect() and Network.bindSocket(),
+        // which avoids loops without hiding this UID from Android's VPN/tether policy.
 
         val tunFd = builder.establish()
             ?: throw IllegalStateException("VpnService.Builder.establish() returned null — VPN not prepared?")
@@ -295,9 +296,8 @@ class BondingVpnService : VpnService() {
      * Tells the system which physical Networks the VPN is layered over. Two effects:
      *  - Both Wi-Fi and mobile data icons appear in the status bar (Android marks both as
      *    "in use by an app"), matching the Speedify behaviour.
-     *  - Tethered traffic and metering are attributed correctly, which on Android 12+
-     *    makes the VPN actually apply to hotspot clients (combined with the user
-     *    enabling "Always-on VPN" + "Block connections without VPN" in system settings).
+     *  - Android can attribute metering and policy decisions to the actual upstream
+     *    Networks instead of treating this as an unbacked app VPN.
      */
     private fun refreshUnderlyingNetworks() {
         val nets = bonding?.activeNetworks() ?: emptyArray()
