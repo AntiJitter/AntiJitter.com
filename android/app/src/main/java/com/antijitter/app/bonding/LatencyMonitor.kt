@@ -39,6 +39,8 @@ class LatencyMonitor(context: Context) {
     data class PathLatency(
         val name: String,
         val available: Boolean,
+        /** Optional provider hint for the physical network, for example "Starlink". */
+        val providerLabel: String? = null,
         /** Last measured RTT in ms, or null if the network is gone or the probe failed. */
         val rttMs: Float?,
         /** Rolling stddev over [HISTORY_SIZE] samples. Null until we have at least 4 samples. */
@@ -94,12 +96,20 @@ class LatencyMonitor(context: Context) {
             override fun onAvailable(network: Network) {
                 networks[name] = network
                 upsert(name) { it.copy(available = true) }
+                if (name == WIFI_NAME) {
+                    scope.launch {
+                        val provider = if (detectStarlinkDish(network)) "Starlink" else null
+                        if (networks[name] == network) {
+                            upsert(name) { it.copy(providerLabel = provider) }
+                        }
+                    }
+                }
             }
             override fun onLost(network: Network) {
                 if (networks[name] == network) {
                     networks.remove(name)
                     history.remove(name)
-                    upsert(name) { it.copy(available = false, rttMs = null, jitterMs = null) }
+                    upsert(name) { it.copy(available = false, providerLabel = null, rttMs = null, jitterMs = null) }
                 }
             }
         }
@@ -138,6 +148,19 @@ class LatencyMonitor(context: Context) {
         }
     }
 
+    private suspend fun detectStarlinkDish(network: Network): Boolean = withContext(Dispatchers.IO) {
+        val socket = Socket()
+        try {
+            network.bindSocket(socket)
+            socket.connect(InetSocketAddress(STARLINK_DISH_HOST, STARLINK_DISH_PORT), STARLINK_DETECT_TIMEOUT_MS)
+            true
+        } catch (_: Throwable) {
+            false
+        } finally {
+            try { socket.close() } catch (_: Throwable) {}
+        }
+    }
+
     private fun stddev(samples: ArrayDeque<Float>): Float? {
         val snap = synchronized(samples) { samples.toList() }
         if (snap.size < 4) return null
@@ -160,9 +183,13 @@ class LatencyMonitor(context: Context) {
         private const val HISTORY_SIZE = 30
         private const val PROBE_HOST = "1.1.1.1"
         private const val PROBE_PORT = 443
+        private const val STARLINK_DISH_HOST = "192.168.100.1"
+        private const val STARLINK_DISH_PORT = 9200
+        private const val STARLINK_DETECT_TIMEOUT_MS = 650
+        private const val WIFI_NAME = "Wi-Fi"
 
         private val TRANSPORTS = listOf(
-            NetworkCapabilities.TRANSPORT_WIFI to "Wi-Fi",
+            NetworkCapabilities.TRANSPORT_WIFI to WIFI_NAME,
             NetworkCapabilities.TRANSPORT_CELLULAR to "Mobile data",
         )
     }

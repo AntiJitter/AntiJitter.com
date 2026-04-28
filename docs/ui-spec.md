@@ -158,6 +158,7 @@ Track every change here so the Android port is a translation, not a redesign.
 ### 2026-04-28 - Android path row readability
 - Active path rows now put ping on the right edge as the primary value, with jitter directly below it in smaller dim text. Path names stay on the left with bytes and packet counts underneath.
 - User-facing cellular copy is now **Mobile data** in Android UI and service path labels. Internal accounting can still use `cellular*` names where it reflects Android transport semantics.
+- Wi-Fi rows can show a provider suffix when detected, starting with **Wi-Fi (Starlink)** when the physical Wi-Fi network can reach the Starlink dish gRPC endpoint at `192.168.100.1:9200`.
 - We are not showing 4G/5G yet; Android transport type only tells us cellular/mobile data reliably without adding telephony permissions.
 - Mode selector and session stats are more compact so active telemetry sits higher on phone screens. Session stats are a single row of four metrics with a small **Share Game Mode** action.
 - **Share Game Mode** is a modal, not a full page yet. It explains Android hotspot sharing, opens hotspot settings, and opens VPN settings for Always-on / Block connections without VPN. Keep lockdown framed as strict hotspot protection, not default onboarding.
