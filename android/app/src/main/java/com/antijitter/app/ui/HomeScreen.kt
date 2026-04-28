@@ -739,6 +739,8 @@ private fun formatBytes(bytes: Long): String = when {
     else -> String.format("%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0)
 }
 
+private const val LATENCY_HISTORY_LIMIT = 90
+
 // BEGIN DEV-TOGGLE (route-all) - remove for production
 @Composable
 private fun DevRouteAllRow(
