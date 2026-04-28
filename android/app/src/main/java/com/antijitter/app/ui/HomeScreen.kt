@@ -511,6 +511,7 @@ private fun LegendDot(color: Color, label: String) {
 
 private data class PathDisplay(
     val name: String,
+    val providerLabel: String?,
     val active: Boolean,
     val rttMs: Float?,
     val jitterMs: Float?,
@@ -536,6 +537,7 @@ private fun mergePaths(
         return bondedPaths.map { p ->
             PathDisplay(
                 displayPathName(p.name, p.cellular),
+                null,
                 p.active,
                 null,
                 null,
@@ -557,6 +559,7 @@ private fun mergePaths(
         val bonded = bondedByName[name]
         PathDisplay(
             name = displayPathName(name, bonded?.cellular == true),
+            providerLabel = lat?.providerLabel,
             active = lat?.available ?: bonded?.active ?: false,
             rttMs = lat?.rttMs,
             jitterMs = lat?.jitterMs,
@@ -616,7 +619,7 @@ private fun PathRow(path: PathDisplay) {
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                text = path.name,
+                text = path.displayName,
                 color = White,
                 fontWeight = FontWeight.Bold,
                 fontSize = 17.sp,
@@ -644,6 +647,9 @@ private fun PathRow(path: PathDisplay) {
         }
     }
 }
+
+private val PathDisplay.displayName: String
+    get() = providerLabel?.let { "$name ($it)" } ?: name
 
 @Composable
 private fun SessionSummaryCard(
