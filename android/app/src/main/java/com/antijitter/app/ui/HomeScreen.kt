@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antijitter.app.bonding.BondingClient
 import com.antijitter.app.bonding.LatencyMonitor
+import com.antijitter.app.bonding.StarlinkMonitor
 import com.antijitter.app.ui.theme.Black
 import com.antijitter.app.ui.theme.Border
 import com.antijitter.app.ui.theme.Dim
@@ -69,6 +70,7 @@ fun HomeScreen(
     status: BondingVpnService.Status,
     stats: BondingClient.Stats?,
     pathLatency: Map<String, LatencyMonitor.PathLatency>,
+    starlink: StarlinkMonitor.State,
     tunnelMode: BondingClient.Mode,
     onTunnelModeChange: (BondingClient.Mode) -> Unit,
     busy: Boolean,
@@ -77,6 +79,8 @@ fun HomeScreen(
     onSignOut: () -> Unit,
     onOpenVpnSettings: () -> Unit,
     onOpenHotspotSettings: () -> Unit,
+    starlinkAlertsEnabled: Boolean,
+    onStarlinkAlertsChange: (Boolean) -> Unit,
     // BEGIN DEV-TOGGLE (route-all) - remove for production
     routeAllTraffic: Boolean,
     onRouteAllTrafficChange: (Boolean) -> Unit,
@@ -133,8 +137,13 @@ fun HomeScreen(
                 onToggle = onToggle,
             )
             ModeSelectorCard(selected = tunnelMode, onSelect = onTunnelModeChange)
-            ActivePathsCard(bondedPaths = stats?.paths.orEmpty(), pathLatency = pathLatency)
+            ActivePathsCard(bondedPaths = stats?.paths.orEmpty(), pathLatency = pathLatency, starlink = starlink)
             SessionSummaryCard(stats = stats, onShareGameMode = { showShareDialog = true })
+            StarlinkStatusCard(
+                starlink = starlink,
+                alertsEnabled = starlinkAlertsEnabled,
+                onAlertsChange = onStarlinkAlertsChange,
+            )
             // BEGIN DEV-TOGGLE (route-all) - remove for production
             DevRouteAllRow(
                 enabled = routeAllTraffic,
@@ -529,6 +538,7 @@ private data class LatencySample(
 private fun mergePaths(
     bondedPaths: List<BondingClient.PathStats>,
     pathLatency: Map<String, LatencyMonitor.PathLatency>,
+    starlink: StarlinkMonitor.State,
 ): List<PathDisplay> {
     val order = listOf("Wi-Fi", "Mobile data", "Cellular")
     val bondedByName = bondedPaths.associateBy { displayPathName(it.name, it.cellular) }
@@ -537,7 +547,7 @@ private fun mergePaths(
         return bondedPaths.map { p ->
             PathDisplay(
                 displayPathName(p.name, p.cellular),
-                null,
+                providerLabel = providerLabelForPath(displayPathName(p.name, p.cellular), starlink),
                 p.active,
                 null,
                 null,
@@ -559,7 +569,8 @@ private fun mergePaths(
         val bonded = bondedByName[name]
         PathDisplay(
             name = displayPathName(name, bonded?.cellular == true),
-            providerLabel = lat?.providerLabel,
+            providerLabel = lat?.providerLabel
+                ?: providerLabelForPath(displayPathName(name, bonded?.cellular == true), starlink),
             active = lat?.available ?: bonded?.active ?: false,
             rttMs = lat?.rttMs,
             jitterMs = lat?.jitterMs,
@@ -573,8 +584,9 @@ private fun mergePaths(
 private fun ActivePathsCard(
     bondedPaths: List<BondingClient.PathStats>,
     pathLatency: Map<String, LatencyMonitor.PathLatency>,
+    starlink: StarlinkMonitor.State,
 ) {
-    val merged = mergePaths(bondedPaths, pathLatency)
+    val merged = mergePaths(bondedPaths, pathLatency, starlink)
     AppCard {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -671,6 +683,88 @@ private fun SessionSummaryCard(
             SummaryMetric("Received", formatBytes(stats?.totalBytesDown ?: 0L), Modifier.weight(1f))
             SummaryMetric("Mobile", formatBytes(stats?.cellularBytes ?: 0L), Modifier.weight(1f))
             SummaryMetric("Failovers", stats?.failovers?.toString() ?: "--", Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun StarlinkStatusCard(
+    starlink: StarlinkMonitor.State,
+    alertsEnabled: Boolean,
+    onAlertsChange: (Boolean) -> Unit,
+) {
+    AppCard(contentPadding = 14.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.weight(1f)) {
+                Text("STARLINK", color = Dim, style = MaterialTheme.typography.labelSmall)
+                Text(
+                    text = when {
+                        !starlink.detected -> "Not detected on Wi-Fi"
+                        starlink.outageActive -> "Dish unreachable"
+                        starlink.reachable -> "Dish reachable"
+                        else -> "Waiting for dish"
+                    },
+                    color = when {
+                        starlink.outageActive -> Red
+                        starlink.reachable -> Green
+                        else -> Dim
+                    },
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Alerts", color = Dim, style = MaterialTheme.typography.labelSmall)
+                Switch(
+                    checked = alertsEnabled,
+                    onCheckedChange = onAlertsChange,
+                    enabled = starlink.detected,
+                    colors = SwitchDefaults.colors(checkedTrackColor = Teal),
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            SummaryMetric(
+                "Dish ping",
+                starlink.lastRttMs?.let { "${it.toInt()} ms" } ?: "--",
+                Modifier.weight(1f),
+            )
+            SummaryMetric(
+                "Last outage",
+                starlink.lastOutageSeconds?.let { "${it}s" } ?: if (starlink.outageActive) "now" else "--",
+                Modifier.weight(1f),
+            )
+            SummaryMetric(
+                "Events",
+                starlink.events.size.toString(),
+                Modifier.weight(1f),
+            )
+        }
+        if (starlink.events.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            DividerLine()
+            Spacer(Modifier.height(10.dp))
+            starlink.events.take(2).forEachIndexed { index, event ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(event.title, color = White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(event.detail, color = Dim, style = MaterialTheme.typography.labelSmall)
+                    }
+                    Text(formatAge(event.ts), color = Dim, style = MaterialTheme.typography.labelSmall)
+                }
+                if (index == 0 && starlink.events.size > 1) {
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
         }
     }
 }
@@ -786,11 +880,23 @@ private fun displayPathName(name: String, cellular: Boolean = false): String = w
     else -> name
 }
 
+private fun providerLabelForPath(name: String, starlink: StarlinkMonitor.State): String? =
+    if (name == "Wi-Fi" && starlink.detected) "Starlink" else null
+
 private fun formatBytes(bytes: Long): String = when {
     bytes < 1024L -> "$bytes B"
     bytes < 1024L * 1024L -> "${bytes / 1024L} KB"
     bytes < 1024L * 1024L * 1024L -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
     else -> String.format("%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0)
+}
+
+private fun formatAge(ts: Long): String {
+    val seconds = ((System.currentTimeMillis() - ts) / 1000L).coerceAtLeast(0L)
+    return when {
+        seconds < 60L -> "${seconds}s ago"
+        seconds < 3600L -> "${seconds / 60L}m ago"
+        else -> "${seconds / 3600L}h ago"
+    }
 }
 
 private const val LATENCY_HISTORY_LIMIT = 90
