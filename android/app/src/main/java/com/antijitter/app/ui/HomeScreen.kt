@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -394,6 +395,7 @@ private fun LatencySparkline(samples: List<LatencySample>) {
         ) {
             Text("LATENCY TREND", color = Dim, style = MaterialTheme.typography.labelSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("200 ms cap", color = Red.copy(alpha = 0.72f), style = MaterialTheme.typography.labelSmall)
                 LegendDot(color = Green, label = "Wi-Fi")
                 LegendDot(color = Teal, label = "Mobile")
             }
@@ -412,14 +414,13 @@ private fun LatencySparkline(samples: List<LatencySample>) {
                 Text("Collecting samples...", color = Dim, style = MaterialTheme.typography.labelSmall)
             } else {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val allValues = samples.flatMap { listOfNotNull(it.wifiMs, it.mobileMs) }
-                    val max = (allValues.maxOrNull() ?: 100f).coerceAtLeast(100f)
-                    val min = (allValues.minOrNull() ?: 0f).coerceAtMost(0f)
-                    val range = (max - min).coerceAtLeast(1f)
+                    val graphTop = 3.dp.toPx()
+                    val graphBottom = size.height - 3.dp.toPx()
+                    val graphHeight = (graphBottom - graphTop).coerceAtLeast(1f)
 
                     fun yFor(value: Float): Float {
-                        val normalized = (value - min) / range
-                        return size.height - (normalized * size.height)
+                        val normalized = value.coerceIn(0f, LATENCY_GRAPH_CEILING_MS) / LATENCY_GRAPH_CEILING_MS
+                        return graphBottom - (normalized * graphHeight)
                     }
 
                     fun drawSeries(values: List<Float?>, color: Color, width: Float) {
@@ -439,12 +440,28 @@ private fun LatencySparkline(samples: List<LatencySample>) {
                             color = color,
                             style = Stroke(width = width, cap = StrokeCap.Round),
                         )
+                        values.forEachIndexed { index, value ->
+                            if (value != null && value > LATENCY_GRAPH_CEILING_MS) {
+                                val x = if (samples.size == 1) 0f else size.width * index / (samples.size - 1)
+                                drawCircle(
+                                    color = color.copy(alpha = 0.95f),
+                                    radius = 2.8.dp.toPx(),
+                                    center = Offset(x, yFor(LATENCY_GRAPH_CEILING_MS)),
+                                )
+                            }
+                        }
                     }
 
                     drawLine(
+                        color = Red.copy(alpha = 0.20f),
+                        start = Offset(0f, yFor(LATENCY_GRAPH_CEILING_MS)),
+                        end = Offset(size.width, yFor(LATENCY_GRAPH_CEILING_MS)),
+                        strokeWidth = 1.dp.toPx(),
+                    )
+                    drawLine(
                         color = Border.copy(alpha = 0.70f),
-                        start = androidx.compose.ui.geometry.Offset(0f, size.height),
-                        end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+                        start = Offset(0f, graphBottom),
+                        end = Offset(size.width, graphBottom),
                         strokeWidth = 1.dp.toPx(),
                     )
                     drawSeries(samples.map { it.wifiMs }, Green, 2.dp.toPx())
@@ -473,8 +490,8 @@ private data class PathDisplay(
     val active: Boolean,
     val rttMs: Float?,
     val jitterMs: Float?,
-    val bytesSent: Long?,
-    val packetsSent: Long?,
+    val bytesTotal: Long?,
+    val packetsTotal: Long?,
 )
 
 private data class LatencySample(
@@ -493,7 +510,14 @@ private fun mergePaths(
     val latencyByName = pathLatency.values.associateBy { displayPathName(it.name, false) }
     if (pathLatency.isEmpty()) {
         return bondedPaths.map { p ->
-            PathDisplay(displayPathName(p.name, p.cellular), p.active, null, null, p.bytesSent, p.packetsSent)
+            PathDisplay(
+                displayPathName(p.name, p.cellular),
+                p.active,
+                null,
+                null,
+                p.bytesSent + p.bytesReceived,
+                p.packetsSent + p.packetsReceived,
+            )
         }
     }
     val names = buildList {
@@ -512,8 +536,8 @@ private fun mergePaths(
             active = lat?.available ?: bonded?.active ?: false,
             rttMs = lat?.rttMs,
             jitterMs = lat?.jitterMs,
-            bytesSent = bonded?.bytesSent,
-            packetsSent = bonded?.packetsSent,
+            bytesTotal = bonded?.let { it.bytesSent + it.bytesReceived },
+            packetsTotal = bonded?.let { it.packetsSent + it.packetsReceived },
         )
     }
 }
@@ -574,7 +598,7 @@ private fun PathRow(path: PathDisplay) {
                 fontSize = 17.sp,
             )
             Text(
-                text = path.bytesSent?.let { "${formatBytes(it)} - ${path.packetsSent ?: 0} pkts" }
+                text = path.bytesTotal?.let { "${formatBytes(it)} - ${path.packetsTotal ?: 0} pkts" }
                     ?: "Measuring path",
                 color = Dim,
                 style = MaterialTheme.typography.bodySmall,
@@ -615,8 +639,8 @@ private fun SessionSummaryCard(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             SummaryMetric("Sent", formatBytes(stats?.totalBytesUp ?: 0L), Modifier.weight(1f))
             SummaryMetric("Received", formatBytes(stats?.totalBytesDown ?: 0L), Modifier.weight(1f))
-            SummaryMetric("Mobile", formatBytes(stats?.cellularBytesUp ?: 0L), Modifier.weight(1f))
-            SummaryMetric("Failovers", "--", Modifier.weight(1f))
+            SummaryMetric("Mobile", formatBytes(stats?.cellularBytes ?: 0L), Modifier.weight(1f))
+            SummaryMetric("Failovers", stats?.failovers?.toString() ?: "--", Modifier.weight(1f))
         }
     }
 }
@@ -740,6 +764,7 @@ private fun formatBytes(bytes: Long): String = when {
 }
 
 private const val LATENCY_HISTORY_LIMIT = 90
+private const val LATENCY_GRAPH_CEILING_MS = 200f
 
 // BEGIN DEV-TOGGLE (route-all) - remove for production
 @Composable

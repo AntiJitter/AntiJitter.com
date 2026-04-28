@@ -162,6 +162,9 @@ Track every change here so the Android port is a translation, not a redesign.
 - Mode selector and session stats are more compact so active telemetry sits higher on phone screens. Session stats are a single row of four metrics with a small **Share Game Mode** action.
 - **Share Game Mode** is a modal, not a full page yet. It explains Android hotspot sharing, opens hotspot settings, and opens VPN settings for Always-on / Block connections without VPN. Keep lockdown framed as strict hotspot protection, not default onboarding.
 - Hero card now includes a compact real path-latency sparkline for Wi-Fi and Mobile data. This uses Android `LatencyMonitor` samples only; do not port the dashboard's simulated Game Mode comparison line until we have true through-tunnel/bonded probe samples.
+- Latency sparkline scales to a fixed 200 ms ceiling. Values above that are pinned to the top edge with same-path markers so a Starlink handoff spike does not flatten the normal 30-120 ms range.
+- Android session **Mobile** now means total mobile path traffic, not only mobile upload. Path rows also show sent + received path bytes, matching what users compare against carrier data counters.
+- **Failovers** now counts mobile rescues when the Wi-Fi primary appears stalled and mobile delivers tunnel traffic. It is intentionally not a raw path-switch counter, because normal packet racing would make that number noisy.
 
 ### 2026-04-27 - Android Apple-style polish pass
 - Login is now a product landing/sign-in surface: dark gradient top wash, large "Lock in low latency" headline, three compact proof metrics, and a rounded sign-in panel. Account creation remains off-app for now.
