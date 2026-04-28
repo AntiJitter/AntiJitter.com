@@ -395,7 +395,6 @@ private fun LatencySparkline(samples: List<LatencySample>) {
         ) {
             Text("LATENCY TREND", color = Dim, style = MaterialTheme.typography.labelSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("200 ms cap", color = Red.copy(alpha = 0.72f), style = MaterialTheme.typography.labelSmall)
                 LegendDot(color = Green, label = "Wi-Fi")
                 LegendDot(color = Teal, label = "Mobile")
             }
@@ -423,25 +422,50 @@ private fun LatencySparkline(samples: List<LatencySample>) {
                         return graphBottom - (normalized * graphHeight)
                     }
 
+                    fun smoothed(values: List<Float?>): List<Float?> = values.mapIndexed { index, value ->
+                        if (value == null) return@mapIndexed null
+                        val local = listOfNotNull(
+                            values.getOrNull(index - 1),
+                            value,
+                            values.getOrNull(index + 1),
+                        ).sorted()
+                        local[local.size / 2]
+                    }
+
                     fun drawSeries(values: List<Float?>, color: Color, width: Float) {
-                        val points = values.mapIndexedNotNull { index, value ->
-                            value?.let {
+                        val visualValues = smoothed(values)
+                        var path = Path()
+                        var segmentPoints = 0
+
+                        fun flushSegment() {
+                            if (segmentPoints >= 2) {
+                                drawPath(
+                                    path = path,
+                                    color = color,
+                                    style = Stroke(width = width, cap = StrokeCap.Round),
+                                )
+                            }
+                            path = Path()
+                            segmentPoints = 0
+                        }
+
+                        visualValues.forEachIndexed { index, value ->
+                            if (value == null) {
+                                flushSegment()
+                            } else {
                                 val x = if (samples.size == 1) 0f else size.width * index / (samples.size - 1)
-                                x to yFor(it)
+                                val y = yFor(value)
+                                if (segmentPoints == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                                segmentPoints += 1
                             }
                         }
-                        if (points.size < 2) return
-                        val path = Path().apply {
-                            moveTo(points.first().first, points.first().second)
-                            points.drop(1).forEach { (x, y) -> lineTo(x, y) }
-                        }
-                        drawPath(
-                            path = path,
-                            color = color,
-                            style = Stroke(width = width, cap = StrokeCap.Round),
-                        )
+                        flushSegment()
+
                         values.forEachIndexed { index, value ->
-                            if (value != null && value > LATENCY_GRAPH_CEILING_MS) {
+                            val neighborSpike = (values.getOrNull(index - 1) ?: 0f) > LATENCY_GRAPH_CEILING_MS ||
+                                (values.getOrNull(index + 1) ?: 0f) > LATENCY_GRAPH_CEILING_MS
+                            val severeSpike = value != null && value > LATENCY_SEVERE_SPIKE_MS
+                            if (value != null && value > LATENCY_GRAPH_CEILING_MS && (neighborSpike || severeSpike)) {
                                 val x = if (samples.size == 1) 0f else size.width * index / (samples.size - 1)
                                 drawCircle(
                                     color = color.copy(alpha = 0.95f),
@@ -765,6 +789,7 @@ private fun formatBytes(bytes: Long): String = when {
 
 private const val LATENCY_HISTORY_LIMIT = 90
 private const val LATENCY_GRAPH_CEILING_MS = 200f
+private const val LATENCY_SEVERE_SPIKE_MS = 450f
 
 // BEGIN DEV-TOGGLE (route-all) - remove for production
 @Composable
