@@ -14,6 +14,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -33,9 +34,9 @@ class BondingClient(
     /**
      * How packets are dispatched across active paths.
      *  - [GAMING]: every packet sent on every active path. Zero spike loss, uses cellular constantly.
-     *  - [BROWSING]: prefer the non-cellular path; cellular sockets stay registered but only carry
-     *    packets when the primary is gone. Saves cellular data for users who don't need
-     *    redundancy on every packet (general web / streaming sessions).
+     *  - [BROWSING]: prefer the non-cellular path; cellular sockets stay warm and carry
+     *    packets when the primary stops delivering replies. Saves cellular data for users
+     *    who don't need redundancy on every packet (general web / streaming sessions).
      */
     enum class Mode { GAMING, BROWSING }
 
@@ -54,6 +55,9 @@ class BondingClient(
     private val totalBytesUp = AtomicLong()
     private val totalBytesDown = AtomicLong()
     private val cellularBytesUp = AtomicLong()
+    private val cellularBytesDown = AtomicLong()
+    private val failovers = AtomicLong()
+    private val primaryStallCounted = AtomicBoolean(false)
 
     /** 4G data cap in bytes; 0 = unlimited. Set via [setDataLimit]. */
     @Volatile private var cellularLimitBytes: Long = 0
@@ -206,17 +210,19 @@ class BondingClient(
             val wrapped = Protocol.encode(s, buf, 0, pkt.length)
             totalPackets.incrementAndGet()
             totalBytesUp.addAndGet(pkt.length.toLong())
+            val now = System.currentTimeMillis()
 
             val snapshot = synchronized(pathsLock) { paths.toList() }
             val targets = pickTargets(snapshot)
             for (path in targets) {
-                if (path.cellular && cellularLimitBytes > 0 && cellularBytesUp.get() >= cellularLimitBytes) {
+                if (path.cellular && cellularLimitBytes > 0 && cellularBytesTotal() >= cellularLimitBytes) {
                     path.active = false
                     Log.w(TAG, "${path.name}: 4G data cap reached, disabling")
                     continue
                 }
                 try {
                     path.socket.send(DatagramPacket(wrapped, wrapped.size))
+                    path.lastSentAtMs.set(now)
                     path.packetsSent.incrementAndGet()
                     path.bytesSent.addAndGet(wrapped.size.toLong())
                     if (path.cellular) cellularBytesUp.addAndGet(wrapped.size.toLong())
@@ -229,8 +235,8 @@ class BondingClient(
 
     /**
      * Decides which active paths get a copy of each packet.
-     * GAMING: all of them. BROWSING: just the non-cellular primary, cellular only as a
-     * fallback when the primary is unavailable.
+     * GAMING: all of them. BROWSING: the non-cellular primary, plus sparse mobile
+     * samples and full mobile fallback when the primary appears stalled.
      */
     private fun pickTargets(snapshot: List<PathRuntime>): List<PathRuntime> {
         val active = snapshot.filter { it.active }
@@ -238,10 +244,36 @@ class BondingClient(
             Mode.GAMING -> active
             Mode.BROWSING -> {
                 val primary = active.firstOrNull { !it.cellular }
-                if (primary != null) listOf(primary)
-                else active // primary down — fall back to whatever's active (cellular)
+                if (primary == null) {
+                    active
+                } else {
+                    val mobile = active.filter { it.cellular }
+                    if (mobile.isEmpty()) {
+                        listOf(primary)
+                    } else {
+                        val shouldSampleMobile = totalPackets.get() % BROWSING_MOBILE_SAMPLE_EVERY == 0L
+                        if (isPrimaryStalled(primary, System.currentTimeMillis()) || shouldSampleMobile) {
+                            listOf(primary) + mobile
+                        } else {
+                            listOf(primary)
+                        }
+                    }
+                }
             }
         }
+    }
+
+    private fun isPrimaryStalled(primary: PathRuntime, now: Long): Boolean {
+        val lastUnique = primary.lastUniqueRxAtMs.get()
+        if (lastUnique > 0L) return now - lastUnique > BROWSING_PRIMARY_STALL_MS
+
+        val lastSent = primary.lastSentAtMs.get()
+        return lastSent > 0L && now - lastSent > BROWSING_PRIMARY_STALL_MS
+    }
+
+    private fun hasStalledPrimary(now: Long): Boolean {
+        val primary = synchronized(pathsLock) { paths.firstOrNull { it.active && !it.cellular } }
+        return primary != null && isPrimaryStalled(primary, now)
     }
 
     /** Reads decoded server replies from one path and forwards de-duped packets to WireGuard. */
@@ -254,6 +286,11 @@ class BondingClient(
             } catch (_: Throwable) {
                 break
             }
+            val now = System.currentTimeMillis()
+            rt.packetsReceived.incrementAndGet()
+            rt.bytesReceived.addAndGet(pkt.length.toLong())
+            if (rt.cellular) cellularBytesDown.addAndGet(pkt.length.toLong())
+
             val s = Protocol.decodeSeq(buf, pkt.length) ?: continue
             // Probes have seq=0; ignore on the reply side (we already handled them in probe()).
             if (s == 0) continue
@@ -262,6 +299,14 @@ class BondingClient(
                 continue
             }
             rt.unique.incrementAndGet()
+            rt.lastUniqueRxAtMs.set(now)
+            if (rt.cellular) {
+                if (hasStalledPrimary(now) && primaryStallCounted.compareAndSet(false, true)) {
+                    failovers.incrementAndGet()
+                }
+            } else {
+                primaryStallCounted.set(false)
+            }
 
             val target = localPeer ?: continue
             val payloadLen = pkt.length - Protocol.HEADER_SIZE
@@ -284,6 +329,8 @@ class BondingClient(
                     active = it.active,
                     packetsSent = it.packetsSent.get(),
                     bytesSent = it.bytesSent.get(),
+                    packetsReceived = it.packetsReceived.get(),
+                    bytesReceived = it.bytesReceived.get(),
                     uniqueRx = it.unique.get(),
                     dupesRx = it.dupes.get(),
                 )
@@ -293,10 +340,15 @@ class BondingClient(
             totalPackets = totalPackets.get(),
             totalBytesUp = totalBytesUp.get(),
             totalBytesDown = totalBytesDown.get(),
+            cellularBytes = cellularBytesTotal(),
             cellularBytesUp = cellularBytesUp.get(),
+            cellularBytesDown = cellularBytesDown.get(),
+            failovers = failovers.get(),
             paths = pathStats,
         )
     }
+
+    private fun cellularBytesTotal(): Long = cellularBytesUp.get() + cellularBytesDown.get()
 
     fun stop() {
         running.getAndSet(null)?.cancel()
@@ -320,8 +372,12 @@ class BondingClient(
         @Volatile var active: Boolean = true
         val packetsSent = AtomicLong()
         val bytesSent = AtomicLong()
+        val packetsReceived = AtomicLong()
+        val bytesReceived = AtomicLong()
         val unique = AtomicLong()
         val dupes = AtomicLong()
+        val lastSentAtMs = AtomicLong()
+        val lastUniqueRxAtMs = AtomicLong()
     }
 
     data class PathStats(
@@ -330,6 +386,8 @@ class BondingClient(
         val active: Boolean,
         val packetsSent: Long,
         val bytesSent: Long,
+        val packetsReceived: Long,
+        val bytesReceived: Long,
         val uniqueRx: Long,
         val dupesRx: Long,
     )
@@ -338,12 +396,17 @@ class BondingClient(
         val totalPackets: Long,
         val totalBytesUp: Long,
         val totalBytesDown: Long,
+        val cellularBytes: Long,
         val cellularBytesUp: Long,
+        val cellularBytesDown: Long,
+        val failovers: Long,
         val paths: List<PathStats>,
     )
 
     companion object {
         private const val TAG = "AJ.Bonding"
+        private const val BROWSING_PRIMARY_STALL_MS = 900L
+        private const val BROWSING_MOBILE_SAMPLE_EVERY = 32L
 
         /** Helper: probe each candidate server through [network] and return the first that responds. */
         suspend fun pickReachableServer(
