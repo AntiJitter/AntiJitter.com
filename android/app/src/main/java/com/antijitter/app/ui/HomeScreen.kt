@@ -434,22 +434,33 @@ private fun LatencySparkline(samples: List<LatencySample>) {
 
                     fun drawSeries(values: List<Float?>, color: Color, width: Float) {
                         val visualValues = smoothed(values)
-                        val points = visualValues.mapIndexedNotNull { index, value ->
-                            value?.let {
+                        var path = Path()
+                        var segmentPoints = 0
+
+                        fun flushSegment() {
+                            if (segmentPoints >= 2) {
+                                drawPath(
+                                    path = path,
+                                    color = color,
+                                    style = Stroke(width = width, cap = StrokeCap.Round),
+                                )
+                            }
+                            path = Path()
+                            segmentPoints = 0
+                        }
+
+                        visualValues.forEachIndexed { index, value ->
+                            if (value == null) {
+                                flushSegment()
+                            } else {
                                 val x = if (samples.size == 1) 0f else size.width * index / (samples.size - 1)
-                                x to yFor(it)
+                                val y = yFor(value)
+                                if (segmentPoints == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                                segmentPoints += 1
                             }
                         }
-                        if (points.size < 2) return
-                        val path = Path().apply {
-                            moveTo(points.first().first, points.first().second)
-                            points.drop(1).forEach { (x, y) -> lineTo(x, y) }
-                        }
-                        drawPath(
-                            path = path,
-                            color = color,
-                            style = Stroke(width = width, cap = StrokeCap.Round),
-                        )
+                        flushSegment()
+
                         values.forEachIndexed { index, value ->
                             val neighborSpike = (values.getOrNull(index - 1) ?: 0f) > LATENCY_GRAPH_CEILING_MS ||
                                 (values.getOrNull(index + 1) ?: 0f) > LATENCY_GRAPH_CEILING_MS
