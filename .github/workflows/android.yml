@@ -1,13 +1,13 @@
 name: Android APK
 
-# Builds a debug APK on every push to the android branch and publishes it as
+# Builds a debug APK on every Android change merged to main and publishes it as
 # a GitHub Release asset with the floating tag `android-latest`, so the phone
 # has a stable download URL. Also uploads the APK as a workflow artifact.
 
 on:
   push:
     branches:
-      - claude/antijitter-android-app-8FaR5
+      - main
     paths:
       - 'android/**'
       - '.github/workflows/android.yml'
