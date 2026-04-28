@@ -339,7 +339,7 @@ class BondingVpnService : VpnService() {
         val mbUp = stats.totalBytesUp / 1024 / 1024
         val mbDown = stats.totalBytesDown / 1024 / 1024
         val title = "Game Mode active — $activePaths path${if (activePaths == 1) "" else "s"}"
-        val body = "↑ ${mbUp} MB · ↓ ${mbDown} MB · mobile ${stats.cellularBytesUp / 1024 / 1024} MB"
+        val body = "↑ ${mbUp} MB · ↓ ${mbDown} MB · mobile ${stats.cellularBytes / 1024 / 1024} MB"
         val nm = getSystemService(NotificationManager::class.java)
         nm?.notify(NOTIF_ID, buildNotification(title, body))
     }
