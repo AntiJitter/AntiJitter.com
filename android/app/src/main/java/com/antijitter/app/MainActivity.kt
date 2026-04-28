@@ -1,12 +1,19 @@
 package com.antijitter.app
 
+import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -18,6 +25,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,6 +36,7 @@ import com.antijitter.app.api.ApiException
 import com.antijitter.app.api.AntiJitterConfig
 import com.antijitter.app.bonding.BondingClient
 import com.antijitter.app.bonding.LatencyMonitor
+import com.antijitter.app.bonding.StarlinkMonitor
 import com.antijitter.app.store.AuthStore
 import com.antijitter.app.ui.HomeScreen
 import com.antijitter.app.ui.LoginScreen
@@ -36,6 +47,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
@@ -123,6 +135,13 @@ private fun AppRoot(
     val vpnStatus by BondingVpnService.status.collectAsState()
     val stats by vm.stats.collectAsState()
     val pathLatency by vm.pathLatency.collectAsState()
+    val starlink by vm.starlink.collectAsState()
+    val context = LocalContext.current
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        vm.setStarlinkAlertsEnabled(granted)
+    }
 
     LaunchedEffect(vm) { vm.init() }
     LaunchedEffect(Unit) {
@@ -150,6 +169,7 @@ private fun AppRoot(
             status = vpnStatus,
             stats = stats,
             pathLatency = pathLatency,
+            starlink = starlink,
             tunnelMode = ui.tunnelMode,
             onTunnelModeChange = { vm.setTunnelMode(it) },
             busy = ui.busy,
@@ -158,6 +178,18 @@ private fun AppRoot(
             onSignOut = { vm.signOut() },
             onOpenVpnSettings = onOpenVpnSettings,
             onOpenHotspotSettings = onOpenHotspotSettings,
+            starlinkAlertsEnabled = ui.starlinkAlertsEnabled,
+            onStarlinkAlertsChange = { enabled ->
+                if (enabled &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    vm.setStarlinkAlertsEnabled(enabled)
+                }
+            },
             // BEGIN DEV-TOGGLE (route-all) — remove for production
             routeAllTraffic = ui.routeAllTraffic,
             onRouteAllTrafficChange = { vm.setRouteAllTraffic(it) },
@@ -171,6 +203,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     private val store = AuthStore(app)
     private val api = ApiClient()
     private val latencyMonitor = LatencyMonitor(app)
+    private val starlinkMonitor = StarlinkMonitor(app)
 
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
@@ -179,21 +212,37 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     val stats: StateFlow<BondingClient.Stats?> = _stats.asStateFlow()
 
     val pathLatency: StateFlow<Map<String, LatencyMonitor.PathLatency>> = latencyMonitor.state
+    val starlink: StateFlow<StarlinkMonitor.State> = starlinkMonitor.state
 
     private val json = Json { encodeDefaults = true }
+    private var lastStarlinkAlertTs = 0L
 
     fun init() {
         latencyMonitor.start()
+        starlinkMonitor.start()
+        ensureStarlinkAlertChannel()
         viewModelScope.launch {
             val tok = store.token.first()
             val em = store.email.first()
             _ui.value = _ui.value.copy(token = tok, email = em)
+        }
+        viewModelScope.launch {
+            starlink.collect { state ->
+                val event = state.events.firstOrNull() ?: return@collect
+                if (!_ui.value.starlinkAlertsEnabled) return@collect
+                if (event.ts <= lastStarlinkAlertTs) return@collect
+                if (!event.title.contains("unreachable", ignoreCase = true)) return@collect
+
+                lastStarlinkAlertTs = event.ts
+                showStarlinkAlert(event)
+            }
         }
     }
 
     override fun onCleared() {
         super.onCleared()
         latencyMonitor.stop()
+        starlinkMonitor.stop()
     }
 
     fun login(email: String, password: String) {
@@ -285,6 +334,10 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     }
 
     // BEGIN DEV-TOGGLE (route-all) — remove for production
+    fun setStarlinkAlertsEnabled(enabled: Boolean) {
+        _ui.value = _ui.value.copy(starlinkAlertsEnabled = enabled)
+    }
+
     fun setRouteAllTraffic(enabled: Boolean) {
         _ui.value = _ui.value.copy(routeAllTraffic = enabled)
     }
@@ -293,6 +346,43 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     fun refreshStats() {
         // Reach into the running service via the singleton flow — simple approach for one-tunnel app.
         _stats.value = BondingVpnServiceStats.snapshot()
+    }
+
+    private fun ensureStarlinkAlertChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getApplication<android.app.Application>().getSystemService(NotificationManager::class.java) ?: return
+        if (nm.getNotificationChannel(STARLINK_ALERT_CHANNEL) != null) return
+        nm.createNotificationChannel(
+            NotificationChannel(
+                STARLINK_ALERT_CHANNEL,
+                "Starlink alerts",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Important Starlink dish dropouts detected by AntiJitter"
+            },
+        )
+    }
+
+    private fun showStarlinkAlert(event: StarlinkMonitor.Event) {
+        val app = getApplication<android.app.Application>()
+        val pending = PendingIntent.getActivity(
+            app,
+            0,
+            Intent(app, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(app, STARLINK_ALERT_CHANNEL)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(event.title)
+            .setContentText(event.detail)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build()
+
+        runCatching {
+            app.getSystemService(NotificationManager::class.java)?.notify(STARLINK_ALERT_ID, notification)
+        }
     }
 
     data class UiState(
@@ -305,9 +395,15 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         /** Snapshot of [tunnelMode] at the moment the start was requested, so the consent dialog uses the same mode the user was looking at. */
         val pendingMode: BondingClient.Mode = BondingClient.Mode.GAMING,
         // BEGIN DEV-TOGGLE (route-all) — remove for production
+        val starlinkAlertsEnabled: Boolean = false,
         val routeAllTraffic: Boolean = false,
         // END DEV-TOGGLE
     )
+
+    companion object {
+        private const val STARLINK_ALERT_CHANNEL = "antijitter_starlink_alerts"
+        private const val STARLINK_ALERT_ID = 0x5354
+    }
 }
 
 /** Bridge: lets the UI poll bonding stats without a Service binding. */
