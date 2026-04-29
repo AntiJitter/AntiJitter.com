@@ -39,7 +39,7 @@ type Tunnel struct {
 	dev        *device.Device
 	tunDev     tun.Device
 	name       string
-	allowedIPs []string
+	routeCIDRs []string
 }
 
 const tunName = "AntiJitter"
@@ -85,12 +85,23 @@ func StartTunnel(cfg WgConfig) (*Tunnel, error) {
 		return nil, fmt.Errorf("configure interface: %w", err)
 	}
 
-	// Add routes for AllowedIPs through the TUN adapter
-	for _, cidr := range cfg.AllowedIPs {
+	routeCIDRs := routeCIDRsForAllowedIPs(cfg.AllowedIPs)
+	if err := prepareRouting(realName, routeCIDRs); err != nil {
+		dev.Close()
+		return nil, fmt.Errorf("configure routes: %w", err)
+	}
+
+	// Add routes for AllowedIPs through the TUN adapter. Route-all uses split
+	// default /1 routes so Windows prefers AntiJitter over the physical default
+	// route without deleting the user's Starlink/mobile default route.
+	for _, cidr := range routeCIDRs {
 		if err := addRoute(realName, cidr); err != nil {
-			log.Printf("Warning: failed to add route for %s: %v", cidr, err)
+			dev.Close()
+			cleanupRoutes(realName, routeCIDRs)
+			return nil, fmt.Errorf("add route %s: %w", cidr, err)
 		}
 	}
+	auditRoutes(realName)
 
 	log.Printf("WireGuard tunnel up: %s addr=%s endpoint=%s", realName, cfg.Address, cfg.Endpoint)
 
@@ -98,7 +109,7 @@ func StartTunnel(cfg WgConfig) (*Tunnel, error) {
 		dev:        dev,
 		tunDev:     tunDev,
 		name:       realName,
-		allowedIPs: cfg.AllowedIPs,
+		routeCIDRs: routeCIDRs,
 	}, nil
 }
 
@@ -107,12 +118,8 @@ func (t *Tunnel) StopTunnel() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// Remove routes before closing the device
-	for _, cidr := range t.allowedIPs {
-		if err := removeRoute(t.name, cidr); err != nil {
-			log.Printf("Warning: failed to remove route for %s: %v", cidr, err)
-		}
-	}
+	// Remove routes before closing the device.
+	cleanupRoutes(t.name, t.routeCIDRs)
 
 	if t.dev != nil {
 		t.dev.Close()
@@ -162,6 +169,28 @@ func base64ToHex(b64 string) (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
+func routeCIDRsForAllowedIPs(allowedIPs []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, cidr := range allowedIPs {
+		if cidr == "0.0.0.0/0" {
+			for _, split := range []string{"0.0.0.0/1", "128.0.0.0/1"} {
+				if !seen[split] {
+					out = append(out, split)
+					seen[split] = true
+				}
+			}
+			continue
+		}
+		if !seen[cidr] {
+			out = append(out, cidr)
+			seen[cidr] = true
+		}
+	}
+	log.Printf("WireGuard OS routes: allowed_ips=%v route_cidrs=%v", allowedIPs, out)
+	return out
+}
+
 // configureInterface sets the IP address and DNS on the TUN adapter.
 // On Windows this uses netsh; on Linux it uses ip commands.
 func configureInterface(ifname, address, dns string) error {
@@ -191,23 +220,81 @@ func configureInterface(ifname, address, dns string) error {
 	return nil
 }
 
+func prepareRouting(ifname string, routeCIDRs []string) error {
+	// Keep the AntiJitter interface metric below normal Wi-Fi/Ethernet defaults.
+	out, err := winexec.CombinedOutput("netsh", "interface", "ipv4", "set", "interface",
+		ifname, "metric=1")
+	if err != nil {
+		return fmt.Errorf("netsh set interface metric: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	log.Printf("Route metric set: %s metric=1", ifname)
+
+	// Remove stale AntiJitter-owned routes from older builds/crashes before adding
+	// the active routes for this session.
+	stale := []string{"0.0.0.0/0", "0.0.0.0/1", "128.0.0.0/1"}
+	for _, cidr := range routeCIDRs {
+		stale = append(stale, cidr)
+	}
+	seen := map[string]bool{}
+	for _, cidr := range stale {
+		if seen[cidr] {
+			continue
+		}
+		seen[cidr] = true
+		_ = removeRoute(ifname, cidr)
+	}
+	return nil
+}
+
 // addRoute adds a route for the given CIDR through the named TUN adapter.
 func addRoute(ifname, cidr string) error {
-	out, err := winexec.CombinedOutput("netsh", "interface", "ip", "add", "route",
-		cidr, ifname)
+	out, err := winexec.CombinedOutput("netsh", "interface", "ipv4", "add", "route",
+		cidr, ifname, "metric=1", "store=active")
 	if err != nil {
 		return fmt.Errorf("netsh add route %s: %s: %w", cidr, strings.TrimSpace(string(out)), err)
 	}
-	log.Printf("Route added: %s via %s", cidr, ifname)
+	log.Printf("Route added: %s via %s metric=1 store=active", cidr, ifname)
 	return nil
 }
 
 // removeRoute removes a route for the given CIDR from the named TUN adapter.
 func removeRoute(ifname, cidr string) error {
-	out, err := winexec.CombinedOutput("netsh", "interface", "ip", "delete", "route",
+	out, err := winexec.CombinedOutput("netsh", "interface", "ipv4", "delete", "route",
 		cidr, ifname)
 	if err != nil {
 		return fmt.Errorf("netsh delete route %s: %s: %w", cidr, strings.TrimSpace(string(out)), err)
 	}
 	return nil
+}
+
+func cleanupRoutes(ifname string, routeCIDRs []string) {
+	stale := append([]string{}, routeCIDRs...)
+	stale = append(stale, "0.0.0.0/0", "0.0.0.0/1", "128.0.0.0/1")
+	seen := map[string]bool{}
+	for _, cidr := range stale {
+		if seen[cidr] {
+			continue
+		}
+		seen[cidr] = true
+		if err := removeRoute(ifname, cidr); err != nil {
+			log.Printf("Warning: failed to remove route for %s: %v", cidr, err)
+		} else {
+			log.Printf("Route removed: %s via %s", cidr, ifname)
+		}
+	}
+}
+
+func auditRoutes(ifname string) {
+	cmd := `$targets=@('1.1.1.1','8.8.8.8','9.9.9.9'); foreach($t in $targets){ $r=Find-NetRoute -RemoteIPAddress $t -ErrorAction SilentlyContinue | Select-Object -First 1; if($r){ "$t => alias=$($r.InterfaceAlias) if=$($r.InterfaceIndex) prefix=$($r.DestinationPrefix) nexthop=$($r.NextHop) routeMetric=$($r.RouteMetric) ifMetric=$($r.InterfaceMetric)" } else { "$t => no route" } }; Get-NetRoute -DestinationPrefix 0.0.0.0/1,128.0.0.0/1 -ErrorAction SilentlyContinue | ForEach-Object { "split-default => alias=$($_.InterfaceAlias) prefix=$($_.DestinationPrefix) routeMetric=$($_.RouteMetric) ifMetric=$($_.InterfaceMetric)" }`
+	out, err := winexec.Output("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", cmd)
+	if err != nil {
+		log.Printf("route audit failed for %s: %v", ifname, err)
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			log.Printf("route audit: %s", line)
+		}
+	}
 }
