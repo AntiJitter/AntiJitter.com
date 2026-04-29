@@ -19,14 +19,14 @@ import (
 
 // Path represents a single network interface/connection to the bonding server.
 type Path struct {
-	Name       string       // e.g. "Starlink", "4G"
-	LocalAddr  string       // bind to this local IP (interface selection)
-	conn       *net.UDPConn // unconnected socket — use WriteTo/ReadFrom
-	serverAddr *net.UDPAddr // remote bonding server for this path
-	active     atomic.Bool
-	bytesSent  atomic.Uint64
+	Name        string       // e.g. "Starlink", "4G"
+	LocalAddr   string       // bind to this local IP (interface selection)
+	conn        *net.UDPConn // unconnected socket — use WriteTo/ReadFrom
+	serverAddr  *net.UDPAddr // remote bonding server for this path
+	active      atomic.Bool
+	bytesSent   atomic.Uint64
 	packetsSent atomic.Uint64
-	lastSend   atomic.Int64 // unix nano
+	lastSend    atomic.Int64 // unix nano
 }
 
 // Config for the bonding client.
@@ -123,10 +123,14 @@ func (c *Client) Start() error {
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
-		for c.running.Load() {
-			<-ticker.C
+		for range ticker.C {
+			if !c.running.Load() {
+				return
+			}
+			log.Printf("path counters: total_packets=%d total_payload_bytes=%d",
+				c.TotalPackets.Load(), c.TotalBytes.Load())
 			for _, p := range c.paths {
-				log.Printf("path %s: sent=%d bytes=%d active=%v",
+				log.Printf("path counters: name=%q sent_packets=%d sent_bytes=%d active=%v",
 					p.Name, p.packetsSent.Load(), p.bytesSent.Load(), p.active.Load())
 			}
 		}

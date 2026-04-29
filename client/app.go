@@ -25,17 +25,19 @@ const bondListenPort = 51821
 
 // Status is sent to the frontend on every tick.
 type Status struct {
-	Active    bool       `json:"active"`
-	Paths     []PathStat `json:"paths"`
-	DataUsedMB  float64  `json:"data_used_mb"`
-	DataLimitMB int64    `json:"data_limit_mb"`
-	Connecting  bool     `json:"connecting"`
+	Active      bool       `json:"active"`
+	Paths       []PathStat `json:"paths"`
+	DataUsedMB  float64    `json:"data_used_mb"`
+	DataLimitMB int64      `json:"data_limit_mb"`
+	Connecting  bool       `json:"connecting"`
+	DevRouteAll bool       `json:"dev_route_all"`
 }
 
 type PathStat struct {
 	Name    string  `json:"name"`
 	Active  bool    `json:"active"`
 	BytesMB float64 `json:"bytes_mb"`
+	Packets uint64  `json:"packets"`
 }
 
 // App is the Wails backend — all exported methods are callable from the frontend.
@@ -48,13 +50,14 @@ type App struct {
 	wgTunnel    *tunnel.Tunnel
 	hostRoutes  []iface.HostRoute
 	token       string
+	devRouteAll bool
 	cancelStats context.CancelFunc
 
 	toggleMu sync.Mutex // prevents double-toggle
 }
 
 func NewApp() *App {
-	return &App{}
+	return &App{devRouteAll: true}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -175,15 +178,29 @@ func (a *App) GetStatus() Status {
 	return a.buildStatus()
 }
 
-// buildStatus reads current state — caller must hold at least RLock.
+// SetDevRouteAll controls the local Windows route-all proof path. It is a
+// temporary client-side override and only affects the next Game Mode start.
+func (a *App) SetDevRouteAll(enabled bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.active {
+		return fmt.Errorf("stop Game Mode before changing DEV route-all")
+	}
+	a.devRouteAll = enabled
+	log.Printf("DEV route-all set to %v", enabled)
+	return nil
+}
+
+// buildStatus reads current state; caller must hold at least RLock.
 func (a *App) buildStatus() Status {
-	s := Status{Active: a.active}
+	s := Status{Active: a.active, DevRouteAll: a.devRouteAll}
 	if a.bondClient != nil {
 		for _, p := range a.bondClient.Stats() {
 			s.Paths = append(s.Paths, PathStat{
 				Name:    p.Name,
 				Active:  p.Active,
 				BytesMB: float64(p.Bytes) / (1024 * 1024),
+				Packets: p.Packets,
 			})
 		}
 		s.DataUsedMB = float64(a.bondClient.DataUsed4G.Load()) / (1024 * 1024)
@@ -195,6 +212,7 @@ func (a *App) buildStatus() Status {
 func (a *App) startGameMode() error {
 	a.mu.RLock()
 	token := a.token
+	devRouteAll := a.devRouteAll
 	a.mu.RUnlock()
 
 	if token == "" {
@@ -210,6 +228,15 @@ func (a *App) startGameMode() error {
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("fetch config: %w", err)
 	}
+	log.Printf("Config: bonding_servers=%v api_allowed_ips=%v data_limit_mb=%d",
+		cfg.BondingServers, cfg.WireGuard.AllowedIPs, cfg.DataLimitMB)
+
+	if devRouteAll {
+		cfg.WireGuard.AllowedIPs = []string{"0.0.0.0/0"}
+		log.Printf("DEV route-all enabled: overriding WireGuard AllowedIPs to %v", cfg.WireGuard.AllowedIPs)
+	} else {
+		log.Printf("DEV route-all disabled: using API WireGuard AllowedIPs %v", cfg.WireGuard.AllowedIPs)
+	}
 
 	// Detect and probe network interfaces
 	allIfaces, err := iface.Detect()
@@ -217,11 +244,16 @@ func (a *App) startGameMode() error {
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("detect interfaces: %w", err)
 	}
+	log.Printf("Detected %d candidate adapter(s)", len(allIfaces))
+	for _, ifc := range allIfaces {
+		log.Printf("Detected adapter: name=%q addr=%s ifindex=%d", ifc.Name, ifc.Addr, ifc.Index)
+	}
 
 	// Add per-adapter host routes so Windows uses the correct gateway for
 	// each adapter instead of routing everything through the lowest-metric
 	// default route.
 	hostRoutes := iface.AddHostRoutes(allIfaces, cfg.BondingServers)
+	log.Printf("Host routes installed before tunnel start: %d", len(hostRoutes))
 
 	reachable := iface.Probe(allIfaces, cfg.BondingServers, 8*time.Second)
 	if len(reachable) == 0 {
@@ -242,6 +274,8 @@ func (a *App) startGameMode() error {
 			i+1, r.Interface.Name, r.Interface.Addr, r.Interface.Index, r.ServerAddr)
 	}
 
+	log.Printf("Selected %d reachable bonding path(s)", len(bondPaths))
+
 	// Start bonding client
 	bondClient, err := bonding.New(bonding.Config{
 		ListenPort:  bondListenPort,
@@ -260,6 +294,7 @@ func (a *App) startGameMode() error {
 	time.Sleep(100 * time.Millisecond)
 
 	// Start WireGuard tunnel pointing to the local bonding client
+	log.Printf("Final WireGuard AllowedIPs: %v", cfg.WireGuard.AllowedIPs)
 	wgTunnel, err := tunnel.StartTunnel(tunnel.WgConfig{
 		PrivateKey: cfg.WireGuard.PrivateKey,
 		Address:    cfg.WireGuard.Address,

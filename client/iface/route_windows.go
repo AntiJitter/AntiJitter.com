@@ -5,7 +5,9 @@ package iface
 import (
 	"fmt"
 	"log"
+	"net"
 	"os/exec"
+	"sort"
 	"strings"
 )
 
@@ -23,14 +25,10 @@ type HostRoute struct {
 func AddHostRoutes(interfaces []Interface, serverAddrs []string) []HostRoute {
 	gateways := getDefaultGateways()
 
-	// Extract unique server IPs from "host:port" addresses.
-	serverIPs := map[string]bool{}
-	for _, addr := range serverAddrs {
-		host := addr
-		if i := strings.LastIndex(addr, ":"); i >= 0 {
-			host = addr[:i]
-		}
-		serverIPs[host] = true
+	serverIPs := resolveServerIPs(serverAddrs)
+	if len(serverIPs) == 0 {
+		log.Printf("route: no IPv4 bonding server IPs resolved from %v", serverAddrs)
+		return nil
 	}
 
 	var routes []HostRoute
@@ -41,7 +39,7 @@ func AddHostRoutes(interfaces []Interface, serverAddrs []string) []HostRoute {
 			log.Printf("route: no default gateway for %s (ifindex=%d), skipping", ifc.Name, ifc.Index)
 			continue
 		}
-		for ip := range serverIPs {
+		for _, ip := range serverIPs {
 			key := fmt.Sprintf("%s|%d", ip, ifc.Index)
 			if seen[key] {
 				continue
@@ -56,6 +54,52 @@ func AddHostRoutes(interfaces []Interface, serverAddrs []string) []HostRoute {
 		}
 	}
 	return routes
+}
+
+func resolveServerIPs(serverAddrs []string) []string {
+	seen := map[string]bool{}
+	for _, addr := range serverAddrs {
+		host := serverHost(addr)
+		if host == "" {
+			continue
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			if ip4 := ip.To4(); ip4 != nil {
+				seen[ip4.String()] = true
+			}
+			continue
+		}
+
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			log.Printf("route: resolve %s failed: %v", host, err)
+			continue
+		}
+		for _, ip := range ips {
+			if ip4 := ip.To4(); ip4 != nil {
+				seen[ip4.String()] = true
+			}
+		}
+	}
+
+	out := make([]string, 0, len(seen))
+	for ip := range seen {
+		out = append(out, ip)
+	}
+	sort.Strings(out)
+	log.Printf("route: bonding server IPv4s=%v", out)
+	return out
+}
+
+func serverHost(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err == nil {
+		return strings.Trim(host, "[]")
+	}
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		return strings.Trim(addr[:i], "[]")
+	}
+	return strings.Trim(addr, "[]")
 }
 
 // RemoveHostRoutes removes previously added host routes.
