@@ -34,10 +34,13 @@ type Status struct {
 }
 
 type PathStat struct {
-	Name    string  `json:"name"`
-	Active  bool    `json:"active"`
-	BytesMB float64 `json:"bytes_mb"`
-	Packets uint64  `json:"packets"`
+	Name       string  `json:"name"`
+	Active     bool    `json:"active"`
+	BytesMB    float64 `json:"bytes_mb"`
+	RxBytesMB  float64 `json:"rx_bytes_mb"`
+	Packets    uint64  `json:"packets"`
+	RxPackets  uint64  `json:"rx_packets"`
+	SendErrors uint64  `json:"send_errors"`
 }
 
 // App is the Wails backend — all exported methods are callable from the frontend.
@@ -197,10 +200,13 @@ func (a *App) buildStatus() Status {
 	if a.bondClient != nil {
 		for _, p := range a.bondClient.Stats() {
 			s.Paths = append(s.Paths, PathStat{
-				Name:    p.Name,
-				Active:  p.Active,
-				BytesMB: float64(p.Bytes) / (1024 * 1024),
-				Packets: p.Packets,
+				Name:       p.Name,
+				Active:     p.Active,
+				BytesMB:    float64(p.Bytes) / (1024 * 1024),
+				RxBytesMB:  float64(p.RxBytes) / (1024 * 1024),
+				Packets:    p.Packets,
+				RxPackets:  p.RxPackets,
+				SendErrors: p.SendErrors,
 			})
 		}
 		s.DataUsedMB = float64(a.bondClient.DataUsed4G.Load()) / (1024 * 1024)
@@ -269,7 +275,9 @@ func (a *App) startGameMode() error {
 			LocalAddr:  r.Interface.Addr,
 			IfIndex:    r.Interface.Index,
 			ServerAddr: r.ServerAddr,
+			Connected:  r.Connected,
 		}
+		log.Printf("Bonding path %d socket mode: connected=%v", i+1, r.Connected)
 		log.Printf("Bonding path %d: %s (%s) ifindex=%d → %s",
 			i+1, r.Interface.Name, r.Interface.Addr, r.Interface.Index, r.ServerAddr)
 	}

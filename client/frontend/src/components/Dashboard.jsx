@@ -135,8 +135,22 @@ export default function Dashboard({ onLogout }) {
                     ? `${(p.bytes_mb * 1024).toFixed(0)} KB`
                     : `${p.bytes_mb.toFixed(1)} MB`
                   } up
+                  {typeof p.rx_bytes_mb === 'number' && (
+                    <span className="path-packets">
+                      {p.rx_bytes_mb < 1
+                        ? `${(p.rx_bytes_mb * 1024).toFixed(0)} KB`
+                        : `${p.rx_bytes_mb.toFixed(1)} MB`
+                      } down
+                    </span>
+                  )}
                   {typeof p.packets === 'number' && (
-                    <span className="path-packets">{p.packets.toLocaleString()} pkts</span>
+                    <span className="path-packets">
+                      {p.packets.toLocaleString()} up pkts
+                      {typeof p.rx_packets === 'number' ? ` / ${p.rx_packets.toLocaleString()} down` : ''}
+                    </span>
+                  )}
+                  {p.send_errors > 0 && (
+                    <span className="path-packets path-errors">{p.send_errors.toLocaleString()} send errors</span>
                   )}
                 </div>
               </div>

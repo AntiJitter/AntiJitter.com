@@ -43,11 +43,12 @@ type Tunnel struct {
 }
 
 const tunName = "AntiJitter"
+const tunnelMTU = 1280
 
 // StartTunnel creates a TUN adapter, configures WireGuard, and brings it up.
 func StartTunnel(cfg WgConfig) (*Tunnel, error) {
 	// Create TUN adapter (uses wintun on Windows)
-	tunDev, err := tun.CreateTUN(tunName, device.DefaultMTU)
+	tunDev, err := tun.CreateTUN(tunName, tunnelMTU)
 	if err != nil {
 		return nil, fmt.Errorf("create TUN: %w", err)
 	}
@@ -103,7 +104,7 @@ func StartTunnel(cfg WgConfig) (*Tunnel, error) {
 	}
 	auditRoutes(realName)
 
-	log.Printf("WireGuard tunnel up: %s addr=%s endpoint=%s", realName, cfg.Address, cfg.Endpoint)
+	log.Printf("WireGuard tunnel up: %s addr=%s mtu=%d endpoint=%s", realName, cfg.Address, tunnelMTU, cfg.Endpoint)
 
 	return &Tunnel{
 		dev:        dev,
@@ -216,6 +217,13 @@ func configureInterface(ifname, address, dns string) error {
 			return fmt.Errorf("netsh set dns: %s: %w", strings.TrimSpace(string(out)), err)
 		}
 	}
+
+	out, err = winexec.CombinedOutput("netsh", "interface", "ipv4", "set", "subinterface",
+		ifname, fmt.Sprintf("mtu=%d", tunnelMTU), "store=active")
+	if err != nil {
+		return fmt.Errorf("netsh set mtu: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	log.Printf("Interface MTU set: %s mtu=%d", ifname, tunnelMTU)
 
 	return nil
 }
