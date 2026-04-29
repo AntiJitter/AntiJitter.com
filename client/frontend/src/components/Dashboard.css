@@ -267,6 +267,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+.path-errors {
+  color: var(--red);
+}
+
 /* ── Data bar ── */
 .data-numbers {
   font-size: 12px;
