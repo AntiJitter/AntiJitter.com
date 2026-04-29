@@ -2,22 +2,30 @@ import { useState, useEffect, useCallback } from 'react'
 import { callGo, onEvent, offEvent } from '../App'
 import './Dashboard.css'
 
-const EMPTY_STATUS = { active: false, paths: [], data_used_mb: 0, data_limit_mb: 50000 }
+const EMPTY_STATUS = {
+  active: false,
+  paths: [],
+  data_used_mb: 0,
+  data_limit_mb: 50000,
+  dev_route_all: true
+}
 
 export default function Dashboard({ onLogout }) {
-  const [status, setStatus]       = useState(EMPTY_STATUS)
+  const [status, setStatus] = useState(EMPTY_STATUS)
   const [connecting, setConnecting] = useState(false)
-  const [error, setError]         = useState('')
-  const [toggling, setToggling]   = useState(false)
+  const [error, setError] = useState('')
+  const [toggling, setToggling] = useState(false)
 
   // Load initial state and subscribe to live updates
   useEffect(() => {
     callGo('GetStatus').then(s => s && setStatus(s)).catch(() => {})
 
-    onEvent('status',        s  => setStatus(s))
-    onEvent('connecting',    v  => setConnecting(v))
+    onEvent('status', s => setStatus(s))
+    onEvent('connecting', v => setConnecting(v))
     onEvent('state-changed', active => {
-      if (!active) setStatus(EMPTY_STATUS)
+      if (!active) {
+        setStatus(s => ({ ...EMPTY_STATUS, dev_route_all: s.dev_route_all ?? true }))
+      }
     })
 
     return () => {
@@ -44,13 +52,25 @@ export default function Dashboard({ onLogout }) {
     onLogout()
   }, [onLogout])
 
-  const isOn         = status.active
-  const isBusy       = toggling || connecting
-  const pathCount    = status.paths?.length ?? 0
-  const dataUsed     = status.data_used_mb ?? 0
-  const dataLimit    = status.data_limit_mb ?? 50000
-  const dataPct      = dataLimit > 0 ? Math.min(100, (dataUsed / dataLimit) * 100) : 0
+  const setRouteAll = useCallback(async (enabled) => {
+    setError('')
+    setStatus(s => ({ ...s, dev_route_all: enabled }))
+    try {
+      await callGo('SetDevRouteAll', enabled)
+    } catch (err) {
+      setStatus(s => ({ ...s, dev_route_all: !enabled }))
+      setError(typeof err === 'string' ? err : 'Failed to change route-all mode')
+    }
+  }, [])
+
+  const isOn = status.active
+  const isBusy = toggling || connecting
+  const pathCount = status.paths?.length ?? 0
+  const dataUsed = status.data_used_mb ?? 0
+  const dataLimit = status.data_limit_mb ?? 50000
+  const dataPct = dataLimit > 0 ? Math.min(100, (dataUsed / dataLimit) * 100) : 0
   const dataBarColor = dataPct > 90 ? 'var(--orange)' : 'var(--teal)'
+  const devRouteAll = status.dev_route_all ?? true
 
   return (
     <div className="dashboard">
@@ -58,7 +78,7 @@ export default function Dashboard({ onLogout }) {
       {/* Header */}
       <header className="dash-header">
         <div className="dash-logo">
-          <span className="dash-logo-icon">◈</span>
+          <span className="dash-logo-icon">AJ</span>
           <span className="dash-logo-text">AntiJitter</span>
         </div>
         <button className="btn-logout" onClick={logout}>Logout</button>
@@ -71,7 +91,7 @@ export default function Dashboard({ onLogout }) {
           <div className="gamemode-labels">
             <span className="gamemode-label">GAME MODE</span>
             <span className={`gamemode-state ${isOn ? 'on' : ''}`}>
-              {connecting ? 'CONNECTING…' : isOn ? 'ACTIVE' : 'OFF'}
+              {connecting ? 'CONNECTING...' : isOn ? 'ACTIVE' : 'OFF'}
             </span>
           </div>
         </div>
@@ -114,7 +134,10 @@ export default function Dashboard({ onLogout }) {
                   {p.bytes_mb < 1
                     ? `${(p.bytes_mb * 1024).toFixed(0)} KB`
                     : `${p.bytes_mb.toFixed(1)} MB`
-                  } ↑
+                  } up
+                  {typeof p.packets === 'number' && (
+                    <span className="path-packets">{p.packets.toLocaleString()} pkts</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -138,15 +161,31 @@ export default function Dashboard({ onLogout }) {
             />
           </div>
           {dataPct > 90 && (
-            <div className="data-warn">⚠ Approaching 4G data limit</div>
+            <div className="data-warn">Approaching 4G data limit</div>
           )}
         </section>
       )}
 
+      <section className="dev-route-row">
+        <div>
+          <div className="dev-route-title">DEV: route all traffic</div>
+          <div className="dev-route-copy">PC traffic uses the bonded route while Game Mode starts.</div>
+        </div>
+        <label className={`switch ${devRouteAll ? 'on' : ''} ${isBusy || isOn ? 'disabled' : ''}`}>
+          <input
+            type="checkbox"
+            checked={devRouteAll}
+            disabled={isBusy || isOn}
+            onChange={e => setRouteAll(e.target.checked)}
+          />
+          <span />
+        </label>
+      </section>
+
       {/* Footer */}
       <footer className="dash-footer">
         {isOn
-          ? '🔒 Traffic bonded across all connections'
+          ? 'Traffic bonded across all connections'
           : 'Activate Game Mode to start bonding'}
       </footer>
 
