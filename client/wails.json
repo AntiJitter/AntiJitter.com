@@ -6,6 +6,9 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
+  "postBuildHooks": {
+    "windows/amd64": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../../scripts/ensure-wintun.ps1 -BinPath ${bin}"
+  },
   "author": {
     "name": "AntiJitter"
   }

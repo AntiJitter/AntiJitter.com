@@ -13,9 +13,10 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os/exec"
 	"strings"
 	"sync"
+
+	"antijitter.com/client/internal/winexec"
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
@@ -94,9 +95,9 @@ func StartTunnel(cfg WgConfig) (*Tunnel, error) {
 	log.Printf("WireGuard tunnel up: %s addr=%s endpoint=%s", realName, cfg.Address, cfg.Endpoint)
 
 	return &Tunnel{
-		dev:       dev,
-		tunDev:    tunDev,
-		name:      realName,
+		dev:        dev,
+		tunDev:     tunDev,
+		name:       realName,
 		allowedIPs: cfg.AllowedIPs,
 	}, nil
 }
@@ -172,16 +173,16 @@ func configureInterface(ifname, address, dns string) error {
 	mask := net.IP(ipNet.Mask).String()
 
 	// Set IP address
-	out, err := exec.Command("netsh", "interface", "ip", "set", "address",
-		ifname, "static", ip.String(), mask).CombinedOutput()
+	out, err := winexec.CombinedOutput("netsh", "interface", "ip", "set", "address",
+		ifname, "static", ip.String(), mask)
 	if err != nil {
 		return fmt.Errorf("netsh set address: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 
 	// Set DNS
 	if dns != "" {
-		out, err = exec.Command("netsh", "interface", "ip", "set", "dns",
-			ifname, "static", dns).CombinedOutput()
+		out, err = winexec.CombinedOutput("netsh", "interface", "ip", "set", "dns",
+			ifname, "static", dns)
 		if err != nil {
 			return fmt.Errorf("netsh set dns: %s: %w", strings.TrimSpace(string(out)), err)
 		}
@@ -192,8 +193,8 @@ func configureInterface(ifname, address, dns string) error {
 
 // addRoute adds a route for the given CIDR through the named TUN adapter.
 func addRoute(ifname, cidr string) error {
-	out, err := exec.Command("netsh", "interface", "ip", "add", "route",
-		cidr, ifname).CombinedOutput()
+	out, err := winexec.CombinedOutput("netsh", "interface", "ip", "add", "route",
+		cidr, ifname)
 	if err != nil {
 		return fmt.Errorf("netsh add route %s: %s: %w", cidr, strings.TrimSpace(string(out)), err)
 	}
@@ -203,8 +204,8 @@ func addRoute(ifname, cidr string) error {
 
 // removeRoute removes a route for the given CIDR from the named TUN adapter.
 func removeRoute(ifname, cidr string) error {
-	out, err := exec.Command("netsh", "interface", "ip", "delete", "route",
-		cidr, ifname).CombinedOutput()
+	out, err := winexec.CombinedOutput("netsh", "interface", "ip", "delete", "route",
+		cidr, ifname)
 	if err != nil {
 		return fmt.Errorf("netsh delete route %s: %s: %w", cidr, strings.TrimSpace(string(out)), err)
 	}
