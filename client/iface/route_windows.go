@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os/exec"
 	"sort"
 	"strings"
+
+	"antijitter.com/client/internal/winexec"
 )
 
 // HostRoute represents an added /32 route to be cleaned up later.
@@ -114,11 +115,11 @@ func RemoveHostRoutes(routes []HostRoute) {
 }
 
 func addRoute(destIP, gateway string, ifIndex int) error {
-	out, err := exec.Command("route", "add",
+	out, err := winexec.CombinedOutput("route", "add",
 		destIP, "mask", "255.255.255.255",
 		gateway, "if", fmt.Sprint(ifIndex),
 		"metric", "1",
-	).CombinedOutput()
+	)
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -126,10 +127,10 @@ func addRoute(destIP, gateway string, ifIndex int) error {
 }
 
 func deleteRoute(destIP, gateway string, ifIndex int) error {
-	out, err := exec.Command("route", "delete",
+	out, err := winexec.CombinedOutput("route", "delete",
 		destIP, "mask", "255.255.255.255",
 		gateway, "if", fmt.Sprint(ifIndex),
-	).CombinedOutput()
+	)
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -139,9 +140,9 @@ func deleteRoute(destIP, gateway string, ifIndex int) error {
 // getDefaultGateways returns ifIndex → gateway IP for all adapters that
 // have a default route (0.0.0.0/0).
 func getDefaultGateways() map[int]string {
-	out, err := exec.Command("powershell", "-NoProfile", "-Command",
+	out, err := winexec.Output("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command",
 		`Get-NetRoute -DestinationPrefix 0.0.0.0/0 | ForEach-Object { "$($_.ifIndex)=$($_.NextHop)" }`,
-	).Output()
+	)
 	if err != nil {
 		log.Printf("route: failed to get default gateways: %v", err)
 		return nil

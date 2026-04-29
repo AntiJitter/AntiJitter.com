@@ -27,12 +27,13 @@ deps:
 	go mod tidy
 	cd frontend && npm install
 
-# Build the Windows .exe (cross-compiles fine from Linux/macOS)
-# Output: build/bin/antijitter.exe
+# Build the Windows .exe and bundle the signed Wintun DLL.
+# Output: build/bin/antijitter.exe and build/bin/wintun.dll
 build: deps
 	wails build -platform windows/amd64
 	@echo ""
 	@echo "Built: build/bin/antijitter.exe"
+	@echo "Bundled: build/bin/wintun.dll"
 	@echo "Run as Administrator on the target Windows machine."
 
 # Dev mode — live reload, opens in browser (no WireGuard/bonding in browser)

@@ -20,6 +20,10 @@ dist/
 node_modules/
 dashboard/frontend/dist/
 dashboard/frontend/dist-electron/
+client/build/
+client/frontend/dist/
+client/frontend/wailsjs/
+client/frontend/package.json.md5
 
 # ── Electron build output ────────────────────────────────────────────────────
 release/
