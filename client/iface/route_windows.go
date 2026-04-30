@@ -19,6 +19,12 @@ type HostRoute struct {
 	IfIndex int
 }
 
+// HostRouteAssignment pins one bonding server destination to one adapter.
+type HostRouteAssignment struct {
+	ServerAddr string
+	IfIndex    int
+}
+
 // AddHostRoutes adds a /32 route to each unique server IP via each
 // interface's default gateway. This forces Windows to use the correct
 // adapter even when multiple adapters share the same interface metric.
@@ -137,6 +143,61 @@ func PreferHostRoute(routes []HostRoute, preferredIfIndex int) func() {
 		for _, r := range routes {
 			if err := changeRouteMetric(r.DestIP, r.Gateway, r.IfIndex, 1); err != nil {
 				log.Printf("route: restore %s via %s IF %d metric=1 failed: %v", r.DestIP, r.Gateway, r.IfIndex, err)
+			}
+		}
+	}
+}
+
+// PinHostRoutes keeps each selected bonding server destination preferred on
+// the adapter that successfully probed it. This stays active for the whole
+// Game Mode session so Windows cannot collapse all traffic back to the
+// lowest-metric default route after socket setup.
+func PinHostRoutes(routes []HostRoute, assignments []HostRouteAssignment) func() {
+	if len(routes) == 0 || len(assignments) == 0 {
+		return func() {}
+	}
+
+	preferred := map[string]int{}
+	for _, a := range assignments {
+		if a.IfIndex == 0 {
+			continue
+		}
+		for _, ip := range resolveServerIPs([]string{a.ServerAddr}) {
+			if _, exists := preferred[ip]; exists {
+				log.Printf("route: host %s already assigned, keeping first route pin", ip)
+				continue
+			}
+			preferred[ip] = a.IfIndex
+		}
+	}
+	if len(preferred) == 0 {
+		return func() {}
+	}
+
+	log.Printf("route: pinning %d bonding host route assignment(s)", len(preferred))
+	for _, r := range routes {
+		wantedIf, ok := preferred[r.DestIP]
+		if !ok {
+			continue
+		}
+		metric := 500
+		if r.IfIndex == wantedIf {
+			metric = 1
+		}
+		if err := changeRouteMetric(r.DestIP, r.Gateway, r.IfIndex, metric); err != nil {
+			log.Printf("route: pin %s via %s IF %d metric=%d failed: %v", r.DestIP, r.Gateway, r.IfIndex, metric, err)
+			continue
+		}
+		if metric == 1 {
+			log.Printf("route: pinned %s/32 via %s IF %d metric=1", r.DestIP, r.Gateway, r.IfIndex)
+		}
+	}
+	auditHostRoutes(resolveHostRoutesIPs(routes))
+
+	return func() {
+		for _, r := range routes {
+			if err := changeRouteMetric(r.DestIP, r.Gateway, r.IfIndex, 1); err != nil {
+				log.Printf("route: restore pinned %s via %s IF %d metric=1 failed: %v", r.DestIP, r.Gateway, r.IfIndex, err)
 			}
 		}
 	}

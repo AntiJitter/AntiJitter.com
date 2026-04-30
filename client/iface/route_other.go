@@ -9,6 +9,12 @@ type HostRoute struct {
 	IfIndex int
 }
 
+// HostRouteAssignment pins one bonding server destination to one adapter.
+type HostRouteAssignment struct {
+	ServerAddr string
+	IfIndex    int
+}
+
 // AddHostRoutes is a no-op on non-Windows.
 func AddHostRoutes(interfaces []Interface, serverAddrs []string) []HostRoute {
 	return nil
@@ -19,5 +25,10 @@ func RemoveHostRoutes(routes []HostRoute) {}
 
 // PreferHostRoute is a no-op on non-Windows.
 func PreferHostRoute(routes []HostRoute, preferredIfIndex int) func() {
+	return func() {}
+}
+
+// PinHostRoutes is a no-op on non-Windows.
+func PinHostRoutes(routes []HostRoute, assignments []HostRouteAssignment) func() {
 	return func() {}
 }
