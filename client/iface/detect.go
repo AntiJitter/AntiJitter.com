@@ -27,16 +27,14 @@ type Interface struct {
 	Index int    // OS interface index
 }
 
-// tunSubnet is the WireGuard TUN address range — exclude it from bonding paths
-// to avoid a routing loop (tunnel packets going back through the tunnel).
+// tunSubnet is the WireGuard TUN address range; exclude it from bonding paths
+// to avoid a routing loop.
 var tunSubnet = func() *net.IPNet {
 	_, n, _ := net.ParseCIDR("10.10.0.0/24")
 	return n
 }()
 
 // Detect finds all non-loopback, up, IPv4 interfaces suitable for bonding.
-// Excludes the AntiJitter TUN adapter (10.10.0.0/24) to prevent loops.
-// Returns at least one or an error.
 func Detect() ([]Interface, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -64,13 +62,13 @@ func Detect() ([]Interface, error) {
 			}
 			ip4 := ipNet.IP.To4()
 			if ip4 == nil {
-				continue // skip IPv6
+				continue
 			}
 			if ip4.IsLoopback() || ip4.IsLinkLocalUnicast() {
 				continue
 			}
 			if tunSubnet.Contains(ip4) {
-				continue // skip the AntiJitter TUN — would cause a routing loop
+				continue
 			}
 
 			result = append(result, Interface{
@@ -84,80 +82,69 @@ func Detect() ([]Interface, error) {
 	if len(result) == 0 {
 		return nil, fmt.Errorf("no usable network interfaces found")
 	}
-
 	return result, nil
 }
 
 // ReachablePath is an interface paired with the server address that it
-// successfully probed against. Different interfaces may end up using different
-// server ports when one is blocked by a carrier but the other isn't.
+// successfully probed against.
 type ReachablePath struct {
 	Interface  Interface
 	ServerAddr string
+	Connected  bool
 }
 
-// Probe tests each interface against each candidate server address, returning
-// (interface, server_addr) pairs for those that round-trip successfully. An
-// interface is probed against each server address in order and the first hit
-// wins — we don't want to duplicate traffic by running the same path against
-// multiple ports. Interfaces that can't reach any server are omitted.
-func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration) []ReachablePath {
-	type probeResult struct {
-		ifc        Interface
-		serverAddr string
-		ok         bool
-	}
-
-	ch := make(chan probeResult, len(interfaces))
-
-	for _, ifc := range interfaces {
-		go func(ifc Interface) {
-			for _, serverAddr := range serverAddrs {
-				if probeOne(ifc, serverAddr, timeout) {
-					ch <- probeResult{ifc: ifc, serverAddr: serverAddr, ok: true}
-					return
-				}
-			}
-			ch <- probeResult{ifc: ifc, ok: false}
-		}(ifc)
-	}
-
+// Probe tests each interface against each candidate server address.
+func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration, hostRoutes []HostRoute) []ReachablePath {
 	var out []ReachablePath
-	for range interfaces {
-		r := <-ch
-		if r.ok {
-			out = append(out, ReachablePath{Interface: r.ifc, ServerAddr: r.serverAddr})
-			log.Printf("  [OK] %s (%s) → can reach %s", r.ifc.Name, r.ifc.Addr, r.serverAddr)
+	for _, ifc := range interfaces {
+		restoreRoute := PreferHostRoute(hostRoutes, ifc.Index)
+		var hit *ReachablePath
+		for _, serverAddr := range serverAddrs {
+			if ok, connected := probeOne(ifc, serverAddr, timeout, len(hostRoutes) > 0); ok {
+				hit = &ReachablePath{Interface: ifc, ServerAddr: serverAddr, Connected: connected}
+				break
+			}
+		}
+		restoreRoute()
+		if hit != nil {
+			out = append(out, *hit)
+			log.Printf("  [OK] %s (%s) can reach %s connected=%v", hit.Interface.Name, hit.Interface.Addr, hit.ServerAddr, hit.Connected)
 		} else {
-			log.Printf("  [--] %s (%s) → cannot reach any bonding server", r.ifc.Name, r.ifc.Addr)
+			log.Printf("  [--] %s (%s) cannot reach any bonding server", ifc.Name, ifc.Addr)
 		}
 	}
 
 	return out
 }
 
-// probeOne tests real round-trip connectivity for a specific interface.
-// Binds to the interface (IP_UNICAST_IF on Windows) so the packet is forced
-// out the target adapter — matching what the bonding client will do. The
-// bonding server echoes probe packets back to the source, so we confirm
-// the adapter has a working internet path rather than trusting Write() to
-// succeed silently while packets vanish upstream.
-func probeOne(ifc Interface, serverAddr string, timeout time.Duration) bool {
-	// Unconnected socket: avoids connect()'s route cache which can
-	// override IP_UNICAST_IF on multi-homed Windows.
+func probeOne(ifc Interface, serverAddr string, timeout time.Duration, preferConnected bool) (bool, bool) {
+	if preferConnected {
+		if ok, connected := probeOneConnected(ifc, serverAddr, timeout); ok {
+			return ok, connected
+		}
+	}
+
 	conn, remote, err := bonding.ListenUDPViaInterface(serverAddr, ifc.Addr, ifc.Index)
 	if err != nil {
-		log.Printf("  probe %s (%s) → %s: listen failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
-		return false
+		log.Printf("  probe %s (%s) -> %s: listen failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
+		return probeOneConnected(ifc, serverAddr, timeout)
 	}
 	defer conn.Close()
 
-	log.Printf("  probe %s (%s) → %s: socket bound to %s", ifc.Name, ifc.Addr, serverAddr, conn.LocalAddr())
+	log.Printf("  probe %s (%s) -> %s: socket bound to %s", ifc.Name, ifc.Addr, serverAddr, conn.LocalAddr())
+	if probeUnconnected(conn, remote, ifc, serverAddr, timeout) {
+		return true, false
+	}
 
+	log.Printf("  probe %s (%s) -> %s: retrying with connected UDP", ifc.Name, ifc.Addr, serverAddr)
+	return probeOneConnected(ifc, serverAddr, timeout)
+}
+
+func probeUnconnected(conn *net.UDPConn, remote *net.UDPAddr, ifc Interface, serverAddr string, timeout time.Duration) bool {
 	probe := []byte{0, 0, 0, 0, 'p', 'r', 'o', 'b', 'e'}
 	conn.SetWriteDeadline(time.Now().Add(timeout))
 	if _, err := conn.WriteToUDP(probe, remote); err != nil {
-		log.Printf("  probe %s (%s) → %s: write failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
+		log.Printf("  probe %s (%s) -> %s: write failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
 		return false
 	}
 
@@ -165,21 +152,60 @@ func probeOne(ifc Interface, serverAddr string, timeout time.Duration) bool {
 	conn.SetReadDeadline(time.Now().Add(timeout / 2))
 	n, _, err := conn.ReadFromUDP(buf)
 	if err != nil {
-		log.Printf("  probe %s (%s) → %s: no reply in %s, retransmitting", ifc.Name, ifc.Addr, serverAddr, timeout/2)
+		log.Printf("  probe %s (%s) -> %s: no reply in %s, retransmitting", ifc.Name, ifc.Addr, serverAddr, timeout/2)
 		if _, werr := conn.WriteToUDP(probe, remote); werr != nil {
-			log.Printf("  probe %s (%s) → %s: retransmit write failed: %v", ifc.Name, ifc.Addr, serverAddr, werr)
+			log.Printf("  probe %s (%s) -> %s: retransmit write failed: %v", ifc.Name, ifc.Addr, serverAddr, werr)
 			return false
 		}
 		conn.SetReadDeadline(time.Now().Add(timeout / 2))
 		n, _, err = conn.ReadFromUDP(buf)
 		if err != nil {
-			log.Printf("  probe %s (%s) → %s: still no reply after retransmit: %v", ifc.Name, ifc.Addr, serverAddr, err)
+			log.Printf("  probe %s (%s) -> %s: still no reply after retransmit: %v", ifc.Name, ifc.Addr, serverAddr, err)
 			return false
 		}
 	}
 	if n < 9 || !bytes.Equal(buf[:n], probe) {
-		log.Printf("  probe %s (%s) → %s: bad echo (n=%d)", ifc.Name, ifc.Addr, serverAddr, n)
+		log.Printf("  probe %s (%s) -> %s: bad echo (n=%d)", ifc.Name, ifc.Addr, serverAddr, n)
 		return false
 	}
 	return true
+}
+
+func probeOneConnected(ifc Interface, serverAddr string, timeout time.Duration) (bool, bool) {
+	conn, err := bonding.DialUDPViaInterface(serverAddr, ifc.Addr, ifc.Index, timeout)
+	if err != nil {
+		log.Printf("  probe %s (%s) -> %s: connected dial failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
+		return false, false
+	}
+	defer conn.Close()
+
+	log.Printf("  probe %s (%s) -> %s: connected socket bound to %s", ifc.Name, ifc.Addr, serverAddr, conn.LocalAddr())
+	probe := []byte{0, 0, 0, 0, 'p', 'r', 'o', 'b', 'e'}
+	conn.SetWriteDeadline(time.Now().Add(timeout))
+	if _, err := conn.Write(probe); err != nil {
+		log.Printf("  probe %s (%s) -> %s: connected write failed: %v", ifc.Name, ifc.Addr, serverAddr, err)
+		return false, false
+	}
+
+	buf := make([]byte, 64)
+	conn.SetReadDeadline(time.Now().Add(timeout / 2))
+	n, err := conn.Read(buf)
+	if err != nil {
+		log.Printf("  probe %s (%s) -> %s: connected no reply in %s, retransmitting", ifc.Name, ifc.Addr, serverAddr, timeout/2)
+		if _, werr := conn.Write(probe); werr != nil {
+			log.Printf("  probe %s (%s) -> %s: connected retransmit failed: %v", ifc.Name, ifc.Addr, serverAddr, werr)
+			return false, false
+		}
+		conn.SetReadDeadline(time.Now().Add(timeout / 2))
+		n, err = conn.Read(buf)
+		if err != nil {
+			log.Printf("  probe %s (%s) -> %s: connected still no reply after retransmit: %v", ifc.Name, ifc.Addr, serverAddr, err)
+			return false, false
+		}
+	}
+	if n < 9 || !bytes.Equal(buf[:n], probe) {
+		log.Printf("  probe %s (%s) -> %s: connected bad echo (n=%d)", ifc.Name, ifc.Addr, serverAddr, n)
+		return false, false
+	}
+	return true, true
 }

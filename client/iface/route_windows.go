@@ -54,6 +54,7 @@ func AddHostRoutes(interfaces []Interface, serverAddrs []string) []HostRoute {
 			log.Printf("route: added %s/32 via %s IF %d (%s)", ip, gw, ifc.Index, ifc.Name)
 		}
 	}
+	auditHostRoutes(serverIPs)
 	return routes
 }
 
@@ -114,11 +115,50 @@ func RemoveHostRoutes(routes []HostRoute) {
 	}
 }
 
+// PreferHostRoute temporarily makes the preferred adapter's bonding-server
+// /32 route win over the other adapters. Connected UDP sockets created while
+// this preference is active should cache that adapter route.
+func PreferHostRoute(routes []HostRoute, preferredIfIndex int) func() {
+	if len(routes) == 0 || preferredIfIndex == 0 {
+		return func() {}
+	}
+	log.Printf("route: preferring host routes for IF %d while opening bonding socket", preferredIfIndex)
+	for _, r := range routes {
+		metric := 500
+		if r.IfIndex == preferredIfIndex {
+			metric = 1
+		}
+		if err := changeRouteMetric(r.DestIP, r.Gateway, r.IfIndex, metric); err != nil {
+			log.Printf("route: prefer %s via %s IF %d metric=%d failed: %v", r.DestIP, r.Gateway, r.IfIndex, metric, err)
+		}
+	}
+	auditHostRoutes(resolveHostRoutesIPs(routes))
+	return func() {
+		for _, r := range routes {
+			if err := changeRouteMetric(r.DestIP, r.Gateway, r.IfIndex, 1); err != nil {
+				log.Printf("route: restore %s via %s IF %d metric=1 failed: %v", r.DestIP, r.Gateway, r.IfIndex, err)
+			}
+		}
+	}
+}
+
 func addRoute(destIP, gateway string, ifIndex int) error {
 	out, err := winexec.CombinedOutput("route", "add",
 		destIP, "mask", "255.255.255.255",
 		gateway, "if", fmt.Sprint(ifIndex),
 		"metric", "1",
+	)
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func changeRouteMetric(destIP, gateway string, ifIndex, metric int) error {
+	out, err := winexec.CombinedOutput("route", "change",
+		destIP, "mask", "255.255.255.255",
+		gateway, "if", fmt.Sprint(ifIndex),
+		"metric", fmt.Sprint(metric),
 	)
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
@@ -135,6 +175,41 @@ func deleteRoute(destIP, gateway string, ifIndex int) error {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func resolveHostRoutesIPs(routes []HostRoute) []string {
+	seen := map[string]bool{}
+	for _, r := range routes {
+		seen[r.DestIP] = true
+	}
+	out := make([]string, 0, len(seen))
+	for ip := range seen {
+		out = append(out, ip)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func auditHostRoutes(serverIPs []string) {
+	if len(serverIPs) == 0 {
+		return
+	}
+	var quoted []string
+	for _, ip := range serverIPs {
+		quoted = append(quoted, fmt.Sprintf("'%s'", ip))
+	}
+	cmd := fmt.Sprintf(`$targets=@(%s); foreach($t in $targets){ $prefix="$t/32"; Get-NetRoute -DestinationPrefix $prefix -ErrorAction SilentlyContinue | Sort-Object RouteMetric,InterfaceMetric,InterfaceIndex | ForEach-Object { "host-route $prefix => alias=$($_.InterfaceAlias) if=$($_.InterfaceIndex) nexthop=$($_.NextHop) routeMetric=$($_.RouteMetric) ifMetric=$($_.InterfaceMetric)" }; $best=Find-NetRoute -RemoteIPAddress $t -ErrorAction SilentlyContinue | Select-Object -First 1; if($best){ "host-route best $t => alias=$($best.InterfaceAlias) if=$($best.InterfaceIndex) prefix=$($best.DestinationPrefix) nexthop=$($best.NextHop) routeMetric=$($best.RouteMetric) ifMetric=$($best.InterfaceMetric)" } }`, strings.Join(quoted, ","))
+	out, err := winexec.Output("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", cmd)
+	if err != nil {
+		log.Printf("route: host route audit failed: %v", err)
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			log.Printf("route: %s", line)
+		}
+	}
 }
 
 // getDefaultGateways returns ifIndex → gateway IP for all adapters that

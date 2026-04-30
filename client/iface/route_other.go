@@ -16,3 +16,8 @@ func AddHostRoutes(interfaces []Interface, serverAddrs []string) []HostRoute {
 
 // RemoveHostRoutes is a no-op on non-Windows.
 func RemoveHostRoutes(routes []HostRoute) {}
+
+// PreferHostRoute is a no-op on non-Windows.
+func PreferHostRoute(routes []HostRoute, preferredIfIndex int) func() {
+	return func() {}
+}

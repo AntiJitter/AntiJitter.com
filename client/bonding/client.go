@@ -23,9 +23,13 @@ type Path struct {
 	LocalAddr   string       // bind to this local IP (interface selection)
 	conn        *net.UDPConn // unconnected socket — use WriteTo/ReadFrom
 	serverAddr  *net.UDPAddr // remote bonding server for this path
+	connected   bool
 	active      atomic.Bool
 	bytesSent   atomic.Uint64
+	bytesRecv   atomic.Uint64
 	packetsSent atomic.Uint64
+	packetsRecv atomic.Uint64
+	sendErrors  atomic.Uint64
 	lastSend    atomic.Int64 // unix nano
 }
 
@@ -46,10 +50,12 @@ type Config struct {
 
 // PathConfig defines a single network path.
 type PathConfig struct {
-	Name       string // "Starlink", "4G"
-	LocalAddr  string // local IP of this interface, e.g. "192.168.1.100"
-	IfIndex    int    // OS interface index — needed to force per-adapter egress
-	ServerAddr string // bonding server "host:port" for this path
+	Name         string // "Starlink", "4G"
+	LocalAddr    string // local IP of this interface, e.g. "192.168.1.100"
+	IfIndex      int    // OS interface index — needed to force per-adapter egress
+	ServerAddr   string // bonding server "host:port" for this path
+	Connected    bool   // use connected UDP instead of WriteToUDP
+	PrepareRoute func() func()
 }
 
 // Client is the bonding client.
@@ -81,6 +87,8 @@ func (s *sequencer) next() uint32 {
 
 const headerSize = 4 // 4-byte sequence number
 
+const udpBufferBytes = 4 * 1024 * 1024
+
 // New creates a new bonding client.
 func New(cfg Config) (*Client, error) {
 	return &Client{cfg: cfg}, nil
@@ -98,10 +106,18 @@ func (c *Client) Start() error {
 		return fmt.Errorf("listen on :%d: %w", c.cfg.ListenPort, err)
 	}
 	defer c.localConn.Close()
+	tuneUDPBuffers(c.localConn, "local WireGuard listener")
 
 	// Create outbound connections for each path
 	for _, pc := range c.cfg.Paths {
+		var restoreRoute func()
+		if pc.PrepareRoute != nil {
+			restoreRoute = pc.PrepareRoute()
+		}
 		path, err := c.createPath(pc)
+		if restoreRoute != nil {
+			restoreRoute()
+		}
 		if err != nil {
 			log.Printf("Warning: failed to create path %s (%s): %v", pc.Name, pc.LocalAddr, err)
 			continue
@@ -130,8 +146,8 @@ func (c *Client) Start() error {
 			log.Printf("path counters: total_packets=%d total_payload_bytes=%d",
 				c.TotalPackets.Load(), c.TotalBytes.Load())
 			for _, p := range c.paths {
-				log.Printf("path counters: name=%q sent_packets=%d sent_bytes=%d active=%v",
-					p.Name, p.packetsSent.Load(), p.bytesSent.Load(), p.active.Load())
+				log.Printf("path counters: name=%q sent_packets=%d sent_bytes=%d recv_packets=%d recv_bytes=%d send_errors=%d connected=%v active=%v",
+					p.Name, p.packetsSent.Load(), p.bytesSent.Load(), p.packetsRecv.Load(), p.bytesRecv.Load(), p.sendErrors.Load(), p.connected, p.active.Load())
 			}
 		}
 	}()
@@ -144,13 +160,15 @@ func (c *Client) Start() error {
 				buf := make([]byte, 1500)
 				for c.running.Load() {
 					path.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-					n, _, err := path.conn.ReadFromUDP(buf)
+					n, err := readPath(path, buf)
 					if err != nil {
 						continue
 					}
 					if n <= headerSize {
 						continue
 					}
+					path.packetsRecv.Add(1)
+					path.bytesRecv.Add(uint64(n))
 					// Strip the 4-byte seq header the server now prepends
 					payload := buf[headerSize:n]
 					if wgClientAddr != nil {
@@ -183,8 +201,9 @@ func (c *Client) Start() error {
 			if !path.active.Load() {
 				continue
 			}
-			_, err := path.conn.WriteToUDP(encoded, path.serverAddr)
+			err := writePath(path, encoded)
 			if err != nil {
+				path.sendErrors.Add(1)
 				log.Printf("Send error on %s: %v", path.Name, err)
 				continue
 			}
@@ -229,10 +248,13 @@ func (c *Client) Stats() []PathStats {
 	var stats []PathStats
 	for _, p := range c.paths {
 		stats = append(stats, PathStats{
-			Name:    p.Name,
-			Active:  p.active.Load(),
-			Packets: p.packetsSent.Load(),
-			Bytes:   p.bytesSent.Load(),
+			Name:       p.Name,
+			Active:     p.active.Load(),
+			Packets:    p.packetsSent.Load(),
+			Bytes:      p.bytesSent.Load(),
+			RxPackets:  p.packetsRecv.Load(),
+			RxBytes:    p.bytesRecv.Load(),
+			SendErrors: p.sendErrors.Load(),
 		})
 	}
 	return stats
@@ -240,10 +262,13 @@ func (c *Client) Stats() []PathStats {
 
 // PathStats for monitoring.
 type PathStats struct {
-	Name    string
-	Active  bool
-	Packets uint64
-	Bytes   uint64
+	Name       string
+	Active     bool
+	Packets    uint64
+	Bytes      uint64
+	RxPackets  uint64
+	RxBytes    uint64
+	SendErrors uint64
 }
 
 // GetDataLimitMB returns the configured 4G data limit in megabytes.
@@ -252,19 +277,65 @@ func (c *Client) GetDataLimitMB() int64 {
 }
 
 func (c *Client) createPath(pc PathConfig) (*Path, error) {
-	conn, serverAddr, err := ListenUDPViaInterface(pc.ServerAddr, pc.LocalAddr, pc.IfIndex)
-	if err != nil {
-		return nil, err
+	var (
+		conn       *net.UDPConn
+		serverAddr *net.UDPAddr
+		err        error
+	)
+	if pc.Connected {
+		conn, err = DialUDPViaInterface(pc.ServerAddr, pc.LocalAddr, pc.IfIndex, 8*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		var ok bool
+		serverAddr, ok = conn.RemoteAddr().(*net.UDPAddr)
+		if !ok {
+			conn.Close()
+			return nil, fmt.Errorf("connected remote is %T, want *net.UDPAddr", conn.RemoteAddr())
+		}
+	} else {
+		conn, serverAddr, err = ListenUDPViaInterface(pc.ServerAddr, pc.LocalAddr, pc.IfIndex)
+		if err != nil {
+			return nil, err
+		}
 	}
+	tuneUDPBuffers(conn, pc.Name)
 
 	p := &Path{
 		Name:       pc.Name,
 		LocalAddr:  pc.LocalAddr,
 		conn:       conn,
 		serverAddr: serverAddr,
+		connected:  pc.Connected,
 	}
 	p.active.Store(true)
 	return p, nil
+}
+
+func writePath(path *Path, payload []byte) error {
+	if path.connected {
+		_, err := path.conn.Write(payload)
+		return err
+	}
+	_, err := path.conn.WriteToUDP(payload, path.serverAddr)
+	return err
+}
+
+func readPath(path *Path, buf []byte) (int, error) {
+	if path.connected {
+		return path.conn.Read(buf)
+	}
+	n, _, err := path.conn.ReadFromUDP(buf)
+	return n, err
+}
+
+func tuneUDPBuffers(conn *net.UDPConn, label string) {
+	if err := conn.SetReadBuffer(udpBufferBytes); err != nil {
+		log.Printf("Warning: set UDP read buffer for %s failed: %v", label, err)
+	}
+	if err := conn.SetWriteBuffer(udpBufferBytes); err != nil {
+		log.Printf("Warning: set UDP write buffer for %s failed: %v", label, err)
+	}
 }
 
 func (c *Client) disable4GPaths() {
