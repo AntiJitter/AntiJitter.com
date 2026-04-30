@@ -2,9 +2,25 @@ package main
 
 import (
 	"net"
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestParseHosts(t *testing.T) {
+	got, err := parseHosts("0.0.0.0, 203.0.113.10,203.0.113.10")
+	if err != nil {
+		t.Fatalf("parseHosts unexpected error: %v", err)
+	}
+	want := []string{"0.0.0.0", "203.0.113.10"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseHosts=%v want %v", got, want)
+	}
+
+	if _, err := parseHosts("example.com"); err == nil {
+		t.Fatal("parseHosts(example.com) succeeded, want error")
+	}
+}
 
 func TestParseReplyMode(t *testing.T) {
 	tests := []struct {
