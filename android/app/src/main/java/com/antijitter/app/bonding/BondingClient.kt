@@ -87,6 +87,7 @@ class BondingClient(
             Log.i(TAG, "mode change ${mode} -> $m")
             mode = m
         }
+        sendReplyModeControlToAll()
     }
 
     fun currentMode(): Mode = mode
@@ -137,6 +138,7 @@ class BondingClient(
 
         val rt = PathRuntime(name, network, socket, serverAddr, isCellular)
         synchronized(pathsLock) { paths += rt }
+        sendReplyModeControl(rt)
         scope.launch { runReplyLoop(rt) }
         return true
     }
@@ -260,6 +262,27 @@ class BondingClient(
                     }
                 }
             }
+        }
+    }
+
+    private fun sendReplyModeControlToAll() {
+        val snapshot = synchronized(pathsLock) { paths.toList() }
+        for (path in snapshot) {
+            sendReplyModeControl(path)
+        }
+    }
+
+    private fun sendReplyModeControl(path: PathRuntime) {
+        val replyMode = when (mode) {
+            Mode.GAMING -> REPLY_MODE_ALL
+            Mode.BROWSING -> REPLY_MODE_PRIMARY
+        }
+        val payload = Protocol.buildReplyMode(replyMode)
+        try {
+            path.socket.send(DatagramPacket(payload, payload.size))
+            Log.i(TAG, "${path.name}: requested server reply mode $replyMode")
+        } catch (t: Throwable) {
+            Log.w(TAG, "${path.name}: reply-mode control failed: ${t.message}")
         }
     }
 
@@ -407,6 +430,8 @@ class BondingClient(
         private const val TAG = "AJ.Bonding"
         private const val BROWSING_PRIMARY_STALL_MS = 900L
         private const val BROWSING_MOBILE_SAMPLE_EVERY = 32L
+        private const val REPLY_MODE_PRIMARY = "primary"
+        private const val REPLY_MODE_ALL = "all"
 
         /** Helper: probe each candidate server through [network] and return the first that responds. */
         suspend fun pickReachableServer(

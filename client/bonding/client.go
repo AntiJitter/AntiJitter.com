@@ -46,6 +46,11 @@ type Config struct {
 
 	// DataLimitMB is the monthly 4G data cap (0 = unlimited).
 	DataLimitMB int64
+
+	// ReplyMode asks the bonding server how to send downlink replies for this
+	// client. "primary" saves secondary/mobile data; "all" races replies over
+	// every registered path for gaming and Windows gateway testing.
+	ReplyMode string
 }
 
 // PathConfig defines a single network path.
@@ -89,6 +94,11 @@ const headerSize = 4 // 4-byte sequence number
 
 const udpBufferBytes = 4 * 1024 * 1024
 
+const (
+	ReplyModePrimary = "primary"
+	ReplyModeAll     = "all"
+)
+
 // New creates a new bonding client.
 func New(cfg Config) (*Client, error) {
 	return &Client{cfg: cfg}, nil
@@ -129,6 +139,7 @@ func (c *Client) Start() error {
 	if len(c.paths) == 0 {
 		return fmt.Errorf("no paths available")
 	}
+	c.sendReplyModeControl()
 
 	log.Printf("Bonding active: %d paths, local=:%d", len(c.paths), c.cfg.ListenPort)
 
@@ -274,6 +285,19 @@ type PathStats struct {
 // GetDataLimitMB returns the configured 4G data limit in megabytes.
 func (c *Client) GetDataLimitMB() int64 {
 	return c.cfg.DataLimitMB
+}
+
+func (c *Client) sendReplyModeControl() {
+	if c.cfg.ReplyMode == "" {
+		return
+	}
+	control := encode(0, []byte("reply-mode:"+c.cfg.ReplyMode))
+	for _, path := range c.paths {
+		if err := writePath(path, control); err != nil {
+			log.Printf("Warning: send reply-mode control on %s failed: %v", path.Name, err)
+		}
+	}
+	log.Printf("Requested bonding server reply mode: %s", c.cfg.ReplyMode)
 }
 
 func (c *Client) createPath(pc PathConfig) (*Path, error) {

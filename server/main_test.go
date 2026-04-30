@@ -47,6 +47,26 @@ func TestParseReplyMode(t *testing.T) {
 	}
 }
 
+func TestParseReplyModeControl(t *testing.T) {
+	got, handled := parseReplyModeControl([]byte("reply-mode:primary"))
+	if !handled || got != replyModePrimary {
+		t.Fatalf("parseReplyModeControl primary=(%q,%v), want primary,true", got, handled)
+	}
+
+	got, handled = parseReplyModeControl([]byte("reply-mode:ALL"))
+	if !handled || got != replyModeAll {
+		t.Fatalf("parseReplyModeControl all=(%q,%v), want all,true", got, handled)
+	}
+
+	if got, handled := parseReplyModeControl([]byte("probe")); handled || got != "" {
+		t.Fatalf("parseReplyModeControl probe=(%q,%v), want empty,false", got, handled)
+	}
+
+	if got, handled := parseReplyModeControl([]byte("reply-mode:striped")); !handled || got != "" {
+		t.Fatalf("parseReplyModeControl invalid=(%q,%v), want empty,true", got, handled)
+	}
+}
+
 func TestReplyTargets(t *testing.T) {
 	now := time.Now()
 	conn := &net.UDPConn{}
@@ -75,5 +95,11 @@ func TestReplyTargets(t *testing.T) {
 		if target == stale {
 			t.Fatal("all replyTargets included stale path")
 		}
+	}
+
+	cs.replyMode = replyModeAll
+	got = replyTargets(cs, replyModePrimary, now)
+	if len(got) != 2 {
+		t.Fatalf("client all override replyTargets len=%d, want 2", len(got))
 	}
 }

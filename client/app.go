@@ -299,6 +299,7 @@ func (a *App) startGameMode() error {
 		ListenPort:  bondListenPort,
 		Paths:       bondPaths,
 		DataLimitMB: cfg.DataLimitMB,
+		ReplyMode:   bonding.ReplyModeAll,
 	})
 	if err != nil {
 		restoreHostRouteMetrics()

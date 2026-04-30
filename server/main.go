@@ -6,9 +6,10 @@
 // WireGuard interface.
 //
 // Traffic flow:
-//   Client (Starlink) ──┐
-//                        ├──→ :bondPort → dedup → 127.0.0.1:wgPort (WireGuard)
-//   Client (4G/5G)   ──┘
+//
+//	Client (Starlink) ──┐
+//	                     ├──→ :bondPort → dedup → 127.0.0.1:wgPort (WireGuard)
+//	Client (4G/5G)   ──┘
 //
 // Multi-port: the server binds each requested port (e.g. 4567 and 443). Many
 // mobile carriers block non-well-known UDP ports, so offering a 443 fallback
@@ -37,10 +38,11 @@ type clientPath struct {
 }
 
 type clientState struct {
-	mu      sync.RWMutex
-	paths   map[string]*clientPath // key = addr.String()
-	dedup   bonding.Deduplicator
-	primary *clientPath // most recent path — used for replies
+	mu        sync.RWMutex
+	paths     map[string]*clientPath // key = addr.String()
+	dedup     bonding.Deduplicator
+	replyMode replyMode
+	primary   *clientPath // most recent path — used for replies
 }
 
 type replyMode string
@@ -50,6 +52,7 @@ const (
 	replyModeAll     replyMode = "all"
 	pathTTL                    = 30 * time.Second
 	udpBufferBytes             = 4 * 1024 * 1024
+	replyModePrefix            = "reply-mode:"
 )
 
 func main() {
@@ -225,9 +228,27 @@ func parseReplyMode(s string) (replyMode, error) {
 	}
 }
 
-func replyTargets(cs *clientState, mode replyMode, now time.Time) []*clientPath {
+func parseReplyModeControl(payload []byte) (replyMode, bool) {
+	text := strings.TrimSpace(string(payload))
+	if !strings.HasPrefix(text, replyModePrefix) {
+		return "", false
+	}
+	mode, err := parseReplyMode(strings.TrimPrefix(text, replyModePrefix))
+	if err != nil {
+		log.Printf("Invalid reply-mode control %q: %v", text, err)
+		return "", true
+	}
+	return mode, true
+}
+
+func replyTargets(cs *clientState, defaultMode replyMode, now time.Time) []*clientPath {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
+
+	mode := defaultMode
+	if cs.replyMode != "" {
+		mode = cs.replyMode
+	}
 
 	switch mode {
 	case replyModeAll:
@@ -292,11 +313,19 @@ func readLoop(conn *net.UDPConn, clients *sync.Map, stats *serverStats, wgConn *
 
 		// Single-client for now — in multi-user deployment we'd key by
 		// WireGuard peer IP derived from handshake or auth token.
-		key := "default"
-		val, _ := clients.LoadOrStore(key, &clientState{
-			paths: make(map[string]*clientPath),
-		})
-		cs := val.(*clientState)
+		cs := loadClient(clients)
+
+		if seq == 0 {
+			if mode, handled := parseReplyModeControl(payload); handled {
+				if mode != "" {
+					cs.mu.Lock()
+					cs.replyMode = mode
+					cs.mu.Unlock()
+					log.Printf("Client reply mode set: %s from %s", mode, remoteAddr)
+				}
+				continue
+			}
+		}
 
 		cs.mu.Lock()
 		addrKey := remoteAddr.String()
@@ -320,6 +349,14 @@ func readLoop(conn *net.UDPConn, clients *sync.Map, stats *serverStats, wgConn *
 			log.Printf("WG write error: %v", err)
 		}
 	}
+}
+
+func loadClient(clients *sync.Map) *clientState {
+	key := "default"
+	val, _ := clients.LoadOrStore(key, &clientState{
+		paths: make(map[string]*clientPath),
+	})
+	return val.(*clientState)
 }
 
 func localPort(conn *net.UDPConn) int {
