@@ -94,43 +94,36 @@ type ReachablePath struct {
 }
 
 // Probe tests each interface against each candidate server address.
-func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration) []ReachablePath {
-	type probeResult struct {
-		ifc        Interface
-		serverAddr string
-		connected  bool
-		ok         bool
-	}
-
-	ch := make(chan probeResult, len(interfaces))
-
-	for _, ifc := range interfaces {
-		go func(ifc Interface) {
-			for _, serverAddr := range serverAddrs {
-				if ok, connected := probeOne(ifc, serverAddr, timeout); ok {
-					ch <- probeResult{ifc: ifc, serverAddr: serverAddr, connected: connected, ok: true}
-					return
-				}
-			}
-			ch <- probeResult{ifc: ifc, ok: false}
-		}(ifc)
-	}
-
+func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration, hostRoutes []HostRoute) []ReachablePath {
 	var out []ReachablePath
-	for range interfaces {
-		r := <-ch
-		if r.ok {
-			out = append(out, ReachablePath{Interface: r.ifc, ServerAddr: r.serverAddr, Connected: r.connected})
-			log.Printf("  [OK] %s (%s) can reach %s connected=%v", r.ifc.Name, r.ifc.Addr, r.serverAddr, r.connected)
+	for _, ifc := range interfaces {
+		restoreRoute := PreferHostRoute(hostRoutes, ifc.Index)
+		var hit *ReachablePath
+		for _, serverAddr := range serverAddrs {
+			if ok, connected := probeOne(ifc, serverAddr, timeout, len(hostRoutes) > 0); ok {
+				hit = &ReachablePath{Interface: ifc, ServerAddr: serverAddr, Connected: connected}
+				break
+			}
+		}
+		restoreRoute()
+		if hit != nil {
+			out = append(out, *hit)
+			log.Printf("  [OK] %s (%s) can reach %s connected=%v", hit.Interface.Name, hit.Interface.Addr, hit.ServerAddr, hit.Connected)
 		} else {
-			log.Printf("  [--] %s (%s) cannot reach any bonding server", r.ifc.Name, r.ifc.Addr)
+			log.Printf("  [--] %s (%s) cannot reach any bonding server", ifc.Name, ifc.Addr)
 		}
 	}
 
 	return out
 }
 
-func probeOne(ifc Interface, serverAddr string, timeout time.Duration) (bool, bool) {
+func probeOne(ifc Interface, serverAddr string, timeout time.Duration, preferConnected bool) (bool, bool) {
+	if preferConnected {
+		if ok, connected := probeOneConnected(ifc, serverAddr, timeout); ok {
+			return ok, connected
+		}
+	}
+
 	conn, remote, err := bonding.ListenUDPViaInterface(serverAddr, ifc.Addr, ifc.Index)
 	if err != nil {
 		log.Printf("  probe %s (%s) -> %s: listen failed: %v", ifc.Name, ifc.Addr, serverAddr, err)

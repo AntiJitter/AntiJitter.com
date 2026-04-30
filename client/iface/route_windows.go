@@ -115,11 +115,50 @@ func RemoveHostRoutes(routes []HostRoute) {
 	}
 }
 
+// PreferHostRoute temporarily makes the preferred adapter's bonding-server
+// /32 route win over the other adapters. Connected UDP sockets created while
+// this preference is active should cache that adapter route.
+func PreferHostRoute(routes []HostRoute, preferredIfIndex int) func() {
+	if len(routes) == 0 || preferredIfIndex == 0 {
+		return func() {}
+	}
+	log.Printf("route: preferring host routes for IF %d while opening bonding socket", preferredIfIndex)
+	for _, r := range routes {
+		metric := 500
+		if r.IfIndex == preferredIfIndex {
+			metric = 1
+		}
+		if err := changeRouteMetric(r.DestIP, r.Gateway, r.IfIndex, metric); err != nil {
+			log.Printf("route: prefer %s via %s IF %d metric=%d failed: %v", r.DestIP, r.Gateway, r.IfIndex, metric, err)
+		}
+	}
+	auditHostRoutes(resolveHostRoutesIPs(routes))
+	return func() {
+		for _, r := range routes {
+			if err := changeRouteMetric(r.DestIP, r.Gateway, r.IfIndex, 1); err != nil {
+				log.Printf("route: restore %s via %s IF %d metric=1 failed: %v", r.DestIP, r.Gateway, r.IfIndex, err)
+			}
+		}
+	}
+}
+
 func addRoute(destIP, gateway string, ifIndex int) error {
 	out, err := winexec.CombinedOutput("route", "add",
 		destIP, "mask", "255.255.255.255",
 		gateway, "if", fmt.Sprint(ifIndex),
 		"metric", "1",
+	)
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func changeRouteMetric(destIP, gateway string, ifIndex, metric int) error {
+	out, err := winexec.CombinedOutput("route", "change",
+		destIP, "mask", "255.255.255.255",
+		gateway, "if", fmt.Sprint(ifIndex),
+		"metric", fmt.Sprint(metric),
 	)
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
@@ -136,6 +175,19 @@ func deleteRoute(destIP, gateway string, ifIndex int) error {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func resolveHostRoutesIPs(routes []HostRoute) []string {
+	seen := map[string]bool{}
+	for _, r := range routes {
+		seen[r.DestIP] = true
+	}
+	out := make([]string, 0, len(seen))
+	for ip := range seen {
+		out = append(out, ip)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func auditHostRoutes(serverIPs []string) {

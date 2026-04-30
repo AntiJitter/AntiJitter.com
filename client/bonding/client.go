@@ -50,11 +50,12 @@ type Config struct {
 
 // PathConfig defines a single network path.
 type PathConfig struct {
-	Name       string // "Starlink", "4G"
-	LocalAddr  string // local IP of this interface, e.g. "192.168.1.100"
-	IfIndex    int    // OS interface index — needed to force per-adapter egress
-	ServerAddr string // bonding server "host:port" for this path
-	Connected  bool   // use connected UDP instead of WriteToUDP
+	Name         string // "Starlink", "4G"
+	LocalAddr    string // local IP of this interface, e.g. "192.168.1.100"
+	IfIndex      int    // OS interface index — needed to force per-adapter egress
+	ServerAddr   string // bonding server "host:port" for this path
+	Connected    bool   // use connected UDP instead of WriteToUDP
+	PrepareRoute func() func()
 }
 
 // Client is the bonding client.
@@ -109,7 +110,14 @@ func (c *Client) Start() error {
 
 	// Create outbound connections for each path
 	for _, pc := range c.cfg.Paths {
+		var restoreRoute func()
+		if pc.PrepareRoute != nil {
+			restoreRoute = pc.PrepareRoute()
+		}
 		path, err := c.createPath(pc)
+		if restoreRoute != nil {
+			restoreRoute()
+		}
 		if err != nil {
 			log.Printf("Warning: failed to create path %s (%s): %v", pc.Name, pc.LocalAddr, err)
 			continue

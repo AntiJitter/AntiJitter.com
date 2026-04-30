@@ -261,7 +261,7 @@ func (a *App) startGameMode() error {
 	hostRoutes := iface.AddHostRoutes(allIfaces, cfg.BondingServers)
 	log.Printf("Host routes installed before tunnel start: %d", len(hostRoutes))
 
-	reachable := iface.Probe(allIfaces, cfg.BondingServers, 3*time.Second)
+	reachable := iface.Probe(allIfaces, cfg.BondingServers, 3*time.Second, hostRoutes)
 	if len(reachable) == 0 {
 		iface.RemoveHostRoutes(hostRoutes)
 		runtime.EventsEmit(a.ctx, "connecting", false)
@@ -270,14 +270,18 @@ func (a *App) startGameMode() error {
 
 	bondPaths := make([]bonding.PathConfig, len(reachable))
 	for i, r := range reachable {
+		ifIndex := r.Interface.Index
 		bondPaths[i] = bonding.PathConfig{
 			Name:       r.Interface.Name,
 			LocalAddr:  r.Interface.Addr,
-			IfIndex:    r.Interface.Index,
+			IfIndex:    ifIndex,
 			ServerAddr: r.ServerAddr,
-			Connected:  r.Connected,
+			Connected:  r.Connected || len(hostRoutes) > 0,
+			PrepareRoute: func() func() {
+				return iface.PreferHostRoute(hostRoutes, ifIndex)
+			},
 		}
-		log.Printf("Bonding path %d socket mode: connected=%v", i+1, r.Connected)
+		log.Printf("Bonding path %d socket mode: connected=%v", i+1, bondPaths[i].Connected)
 		log.Printf("Bonding path %d: %s (%s) ifindex=%d → %s",
 			i+1, r.Interface.Name, r.Interface.Addr, r.Interface.Index, r.ServerAddr)
 	}
