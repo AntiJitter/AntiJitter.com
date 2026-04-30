@@ -42,6 +42,20 @@ act as the gateway for an Xbox or PC through Internet Connection Sharing,
 Ethernet, or Windows hotspot. The first Windows goal is to prove that a tethered
 Xbox/PC sees the Germany/Hetzner VPS IP and avoids Starlink handoff spikes.
 
+2026-04-30 Windows gateway proof:
+
+- Windows route-all now works as a proof path. The Windows PC showed the
+  Germany/Hetzner public IP instead of Starlink when Game Mode was active.
+- Classic Windows Internet Connection Sharing from the AntiJitter adapter to
+  the Microsoft Wi-Fi Direct adapter also worked: an iPhone joined the Windows
+  hotspot, received a `192.168.137.x` address, saw the Hetzner IP, and caused
+  AntiJitter Windows path counters to rise during speedtest traffic.
+- This proves the Windows gateway direction for shared clients. Xbox testing
+  and NAT behavior are still not final product claims.
+- Modern Windows "Mobile hotspot" settings may not offer the AntiJitter adapter
+  as the source. The reliable manual test path is the classic adapter
+  Properties -> Sharing tab on the AntiJitter adapter.
+
 ## Positioning And Promise Boundaries
 
 `docs/marketing-brief.md` contains useful launch copy and positioning, but some
@@ -129,10 +143,21 @@ docs/
 ### Bonding Server
 
 - Germany VPS host: `game-mode.antijitter.com`.
+- Current Germany bonding IPs: `178.104.168.177` plus floating IPv4
+  `195.201.250.234`.
 - WireGuard subnet: `10.10.0.0/24`.
 - Go server lives in `server/`.
 - Multi-port UDP bonding is used so mobile carriers that block one UDP port may
   still work on another.
+- For Windows multi-homing, the bonding server should listen on explicit public
+  hosts with `--bond-hosts=178.104.168.177,195.201.250.234` and
+  `--bond-ports=4567,443`.
+- Server default reply mode should stay `primary`. Clients can request
+  `primary` or `all` per client/session. Android Browsing uses `primary`;
+  Android Gaming and the current Windows route-all proof use `all`.
+- The server must isolate clients by WireGuard message indexes. Do not
+  reintroduce a global `key := "default"` client bucket or broadcast replies
+  across clients.
 - Do not casually modify server protocol code. The protocol is shared with
   Android and Windows and a previous protocol mismatch cost significant time.
 
@@ -145,6 +170,8 @@ docs/
 ```
 
 - `seq = 0` with payload `probe` is a reachability probe; the server echoes it.
+- `seq = 0` can also carry backward-compatible control payloads. Current
+  control payloads are `reply-mode:primary` and `reply-mode:all`.
 - Server deduplicates packets by sequence number and forwards the first arrival.
 - Android, Windows, and server must stay byte-for-byte compatible.
 
@@ -167,6 +194,8 @@ Current Android features:
 - Gaming mode: every packet is sent on every active path.
 - Browsing mode: Wi-Fi/non-cellular is primary; mobile data is sampled and used
   when the primary appears stalled.
+- Mode-aware server replies: Browsing requests `reply-mode:primary` to reduce
+  mobile downlink usage; Gaming requests `reply-mode:all` for full redundancy.
 - Per-path latency and jitter display.
 - Smoothed capped latency sparkline with gaps for missing samples.
 - Mobile data accounting uses upload + download.
@@ -189,6 +218,9 @@ Known Android limitations:
   telemetry needs Starlink gRPC/protobuf integration.
 - Latency is currently physical path latency, not a true through-tunnel bonded
   probe. It is still useful and honest enough for path quality display.
+- Browsing mode can still use mobile data during real Starlink stalls, high
+  latency, or speedtests. Recent tests showed low server-side redundancy in
+  Browsing and full redundancy in Gaming after PR #66.
 
 ## Windows Status And Next Priority
 
@@ -214,8 +246,17 @@ Current Windows architecture:
 - Starts wireguard-go with endpoint `127.0.0.1:<bonding-port>`.
 - Detects IPv4 adapters and excludes the AntiJitter TUN subnet.
 - Adds `/32` host routes to bonding server IPs through each adapter gateway.
-- Uses unconnected UDP sockets plus `WriteToUDP`.
-- Applies `IP_UNICAST_IF`, but the host routes are the important Windows fix.
+- Uses Windows route pinning plus socket binding. `IP_UNICAST_IF` helps, but
+  route pinning is the important fix.
+- Current dev route-all path overrides WireGuard `AllowedIPs` to `0.0.0.0/0`
+  locally and installs split-default routes through Wintun.
+- The API still returns `allowed_ips = ["10.10.0.0/24"]`; the route-all behavior
+  is a Windows client-side dev/test override, not a backend contract.
+- With two public bonding IPs, Windows pins distinct adapters to distinct
+  server hosts, for example Starlink Ethernet -> `178.104.168.177` and mobile
+  Wi-Fi -> `195.201.250.234`.
+- Wintun is packaged/installed by the app; users should not manually download
+  `wintun.dll`.
 
 Critical Windows lesson:
 
@@ -227,31 +268,34 @@ Critical Windows lesson:
 
 Known Windows gaps:
 
-- Backend `/api/config` currently returns `allowed_ips = ["10.10.0.0/24"]`.
-  For Xbox/PC proof-of-concept, the Windows client likely needs a local
-  route-all override to `0.0.0.0/0`, while preserving host routes to bonding
-  servers so the bonding sockets do not loop into the tunnel.
-- No Gaming/Browsing mode parity yet; current Windows bonding sends every packet
-  on every active path.
+- No Gaming/Browsing mode parity yet; current Windows route-all proof requests
+  `reply-mode:all` and sends every packet on every active path.
 - Stats are much simpler than Android: no received bytes, failovers, unique RX,
   duplicate RX, per-path latency/jitter, or sparkline.
 - Mobile/secondary data accounting currently treats any path not named
   `Starlink` as mobile; this is not robust on Windows adapter names.
 - UI is older than Android and has encoding artifacts from earlier edits.
 - No Windows Starlink card yet.
-- No guided "Share to Xbox" workflow yet.
+- No guided "Share to Xbox" workflow yet. Classic ICS works manually, but the
+  app does not configure or validate it.
+- Xbox/Open NAT is not solved. Current gateway path is double NAT:
+  Xbox/device -> Windows ICS -> AntiJitter tunnel -> VPS NAT -> Internet.
+  Open NAT likely needs later port-forwarding or allocated public port ranges.
 
 Recommended Windows next steps:
 
-1. Add a local dev route-all option for Windows Game Mode.
-2. Verify Windows PC public IP becomes the Germany/Hetzner VPS IP when Game Mode
-   is active.
-3. Verify AntiJitter path counters rise under Windows speedtest traffic.
-4. Configure Windows Internet Connection Sharing or equivalent from the
-   AntiJitter tunnel to Xbox Ethernet / Windows hotspot.
-5. Verify Xbox public IP becomes the VPS IP and Starlink handoff spikes are
+1. Add Windows Gaming/Browsing mode parity. Gaming should use `reply-mode:all`;
+   Browsing should use `reply-mode:primary`.
+2. Add a guided "Share to Xbox" panel for classic ICS:
+   AntiJitter adapter -> Sharing -> Microsoft Wi-Fi Direct adapter or Xbox
+   Ethernet adapter.
+3. Verify Xbox public IP becomes the VPS IP and Starlink handoff spikes are
    hidden by mobile path delivery.
-6. Port Android's stats model and UI concepts to Windows after route-all works.
+4. Add per-path latency/jitter monitor to Windows.
+5. Add better stats: sent, received, mobile data, failovers, unique RX, dupes.
+6. Modernize Windows UI toward Android HomeScreen design.
+7. Add console NAT groundwork later: API-allocated public port ranges, server
+   forwarding to the user's WireGuard IP, and Windows forwarding to Xbox.
 
 ## AntiJitter Switch
 
@@ -395,12 +439,23 @@ User test environment:
 
 Expected route-all success signal:
 
-- Phone-only Android speedtest should show the Germany/Hetzner VPS IP when
-  route-all is enabled.
+- Phone-only Android speedtest should show the Germany/Hetzner VPS IP when Game
+  Mode is enabled.
 - Windows route-all speedtest should show the Germany/Hetzner VPS IP.
 - A device shared through Windows should also show the VPS IP if gateway sharing
   is working.
 - If it shows the Starlink public IP, traffic is bypassing AntiJitter.
+
+2026-04-30 measured signals:
+
+- Android Browsing mode produced `Client reply mode set: primary` logs for both
+  Starlink and mobile paths, with low server redundancy during normal traffic.
+- Android Gaming mode produced `Client reply mode set: all` and roughly 50%
+  redundancy during sustained two-path traffic.
+- Windows route-all proof produced `Client reply mode set: all` and two
+  registered paths from different public IPs.
+- Windows shared-hotspot client received `192.168.137.x`, saw the Hetzner public
+  IP, and increased Windows AntiJitter path counters during speedtest.
 
 ## Assistant Operating Rules
 
