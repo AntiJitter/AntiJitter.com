@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"time"
 
 	"antijitter.com/client/bonding"
@@ -96,12 +97,16 @@ type ReachablePath struct {
 // Probe tests each interface against each candidate server address.
 func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration, hostRoutes []HostRoute) []ReachablePath {
 	var out []ReachablePath
+	usedHosts := map[string]bool{}
+	distinctHosts := countServerHosts(serverAddrs) > 1
+
 	for _, ifc := range interfaces {
 		restoreRoute := PreferHostRoute(hostRoutes, ifc.Index)
 		var hit *ReachablePath
-		for _, serverAddr := range serverAddrs {
+		for _, serverAddr := range orderedServerAddrs(serverAddrs, usedHosts, distinctHosts) {
 			if ok, connected := probeOne(ifc, serverAddr, timeout, len(hostRoutes) > 0); ok {
 				hit = &ReachablePath{Interface: ifc, ServerAddr: serverAddr, Connected: connected}
+				usedHosts[serverAddrHost(serverAddr)] = true
 				break
 			}
 		}
@@ -115,6 +120,46 @@ func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration, 
 	}
 
 	return out
+}
+
+func orderedServerAddrs(serverAddrs []string, usedHosts map[string]bool, distinctHosts bool) []string {
+	if !distinctHosts {
+		return serverAddrs
+	}
+	out := make([]string, 0, len(serverAddrs))
+	for _, addr := range serverAddrs {
+		if !usedHosts[serverAddrHost(addr)] {
+			out = append(out, addr)
+		}
+	}
+	for _, addr := range serverAddrs {
+		if usedHosts[serverAddrHost(addr)] {
+			out = append(out, addr)
+		}
+	}
+	return out
+}
+
+func countServerHosts(serverAddrs []string) int {
+	seen := map[string]bool{}
+	for _, addr := range serverAddrs {
+		host := serverAddrHost(addr)
+		if host != "" {
+			seen[host] = true
+		}
+	}
+	return len(seen)
+}
+
+func serverAddrHost(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err == nil {
+		return strings.Trim(host, "[]")
+	}
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		return strings.Trim(addr[:i], "[]")
+	}
+	return strings.Trim(addr, "[]")
 }
 
 func probeOne(ifc Interface, serverAddr string, timeout time.Duration, preferConnected bool) (bool, bool) {

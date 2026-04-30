@@ -53,12 +53,17 @@ const (
 )
 
 func main() {
+	bondHosts := flag.String("bond-hosts", "0.0.0.0", "comma-separated local IPs to bind bonding listeners on")
 	bondPorts := flag.String("bond-ports", "4567", "comma-separated UDP ports to receive bonded packets on (e.g. 4567,443)")
 	wgHost := flag.String("wg-host", "127.0.0.1", "WireGuard listen address")
 	wgPort := flag.Int("wg-port", 51820, "WireGuard listen port")
 	replyModeFlag := flag.String("reply-mode", string(replyModePrimary), "reply path mode: primary or all")
 	flag.Parse()
 
+	hosts, err := parseHosts(*bondHosts)
+	if err != nil {
+		log.Fatalf("parse --bond-hosts: %v", err)
+	}
 	ports, err := parsePorts(*bondPorts)
 	if err != nil {
 		log.Fatalf("parse --bond-ports: %v", err)
@@ -69,8 +74,10 @@ func main() {
 	}
 
 	log.Printf("AntiJitter Bonding Server starting")
-	for _, p := range ports {
-		log.Printf("  Bond listen: 0.0.0.0:%d", p)
+	for _, host := range hosts {
+		for _, p := range ports {
+			log.Printf("  Bond listen: %s:%d", host, p)
+		}
 	}
 	log.Printf("  WireGuard:   %s:%d", *wgHost, *wgPort)
 	log.Printf("  Reply mode:  %s", mode)
@@ -82,20 +89,24 @@ func main() {
 		log.Printf("  Peer API:    disabled (set ADD_PEER_TOKEN to enable)")
 	}
 
-	// Open a listener per bond port
-	conns := make([]*net.UDPConn, 0, len(ports))
-	for _, port := range ports {
-		addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", port))
-		if err != nil {
-			log.Fatal(err)
+	// Open a listener per local host/port. Binding explicit public IPs matters
+	// when clients connect to multiple VPS destination IPs: replies must use
+	// the same source IP the client connected to.
+	conns := make([]*net.UDPConn, 0, len(hosts)*len(ports))
+	for _, host := range hosts {
+		for _, port := range ports {
+			addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, strconv.Itoa(port)))
+			if err != nil {
+				log.Fatal(err)
+			}
+			conn, err := net.ListenUDP("udp", addr)
+			if err != nil {
+				log.Fatalf("listen on %s: %v", addr, err)
+			}
+			tuneUDPBuffers(conn, fmt.Sprintf("bond listener %s", addr))
+			defer conn.Close()
+			conns = append(conns, conn)
 		}
-		conn, err := net.ListenUDP("udp", addr)
-		if err != nil {
-			log.Fatalf("listen on :%d: %v", port, err)
-		}
-		tuneUDPBuffers(conn, fmt.Sprintf("bond listener :%d", port))
-		defer conn.Close()
-		conns = append(conns, conn)
 	}
 
 	// Connect to local WireGuard
@@ -155,6 +166,29 @@ func main() {
 	}
 	log.Printf("Ready — waiting for client connections")
 	wg.Wait()
+}
+
+// parseHosts splits "0.0.0.0,203.0.113.10" into bindable local IPs.
+func parseHosts(s string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, part := range strings.Split(s, ",") {
+		host := strings.TrimSpace(part)
+		if host == "" {
+			continue
+		}
+		if ip := net.ParseIP(host); ip == nil {
+			return nil, fmt.Errorf("%q is not an IP address", host)
+		}
+		if !seen[host] {
+			out = append(out, host)
+			seen[host] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no hosts given")
+	}
+	return out, nil
 }
 
 // parsePorts splits "4567,443" → [4567, 443].

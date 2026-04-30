@@ -35,7 +35,6 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 _SUBNET = ipaddress.IPv4Network("10.10.0.0/24")
 _IP_POOL = [str(ip) for ip in list(_SUBNET.hosts())[1:]]  # .2 → .254
 
-BONDING_HOST = "178.104.168.177"  # TODO: game-mode.antijitter.com once DNS is set
 # Multiple ports so mobile carriers that block uncommon UDP ports still reach us.
 # :4567 is our native port, :443 is the near-universal fallback (carriers allow UDP/443 for QUIC).
 BONDING_PORTS = [4567, 443]
@@ -112,6 +111,23 @@ async def _next_peer_ip(db: AsyncSession) -> str:
     raise HTTPException(status_code=503, detail="IP pool exhausted")
 
 
+def _bonding_hosts() -> list[str]:
+    hosts = [
+        h.strip()
+        for h in settings.bonding_hosts.split(",")
+        if h.strip()
+    ]
+    if not hosts:
+        return ["178.104.168.177"]
+    return hosts
+
+
+def _bonding_servers() -> list[str]:
+    # Keep hosts grouped first so a client with multiple physical adapters can
+    # pick distinct destination IPs before falling back to alternate ports.
+    return [f"{host}:{port}" for host in _bonding_hosts() for port in BONDING_PORTS]
+
+
 @router.get("")
 async def get_config(
     user: User = Depends(get_current_user),
@@ -160,6 +176,6 @@ async def get_config(
             "peer_key": settings.server_wg_public_key,
             "allowed_ips": ["10.10.0.0/24"],
         },
-        "bonding_servers": [f"{BONDING_HOST}:{p}" for p in BONDING_PORTS],
+        "bonding_servers": _bonding_servers(),
         "data_limit_mb": DEFAULT_DATA_LIMIT_MB,
     }

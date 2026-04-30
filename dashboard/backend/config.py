@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # Germany VPS peer-management API (runs alongside the bonding server)
     bonding_peer_api_url: str = "http://178.104.168.177:4568"
     bonding_peer_api_token: str = ""
+    # Comma-separated public destination IPs/hosts for bonding traffic.
+    # Windows needs distinct destination IPs to keep multiple physical
+    # adapters from collapsing onto the same best route.
+    bonding_hosts: str = "178.104.168.177"
 
     class Config:
         env_file = _ENV_FILE
