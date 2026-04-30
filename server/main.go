@@ -43,15 +43,29 @@ type clientState struct {
 	primary *clientPath // most recent path — used for replies
 }
 
+type replyMode string
+
+const (
+	replyModePrimary replyMode = "primary"
+	replyModeAll     replyMode = "all"
+	pathTTL                    = 30 * time.Second
+	udpBufferBytes             = 4 * 1024 * 1024
+)
+
 func main() {
 	bondPorts := flag.String("bond-ports", "4567", "comma-separated UDP ports to receive bonded packets on (e.g. 4567,443)")
 	wgHost := flag.String("wg-host", "127.0.0.1", "WireGuard listen address")
 	wgPort := flag.Int("wg-port", 51820, "WireGuard listen port")
+	replyModeFlag := flag.String("reply-mode", string(replyModePrimary), "reply path mode: primary or all")
 	flag.Parse()
 
 	ports, err := parsePorts(*bondPorts)
 	if err != nil {
 		log.Fatalf("parse --bond-ports: %v", err)
+	}
+	mode, err := parseReplyMode(*replyModeFlag)
+	if err != nil {
+		log.Fatalf("parse --reply-mode: %v", err)
 	}
 
 	log.Printf("AntiJitter Bonding Server starting")
@@ -59,6 +73,7 @@ func main() {
 		log.Printf("  Bond listen: 0.0.0.0:%d", p)
 	}
 	log.Printf("  WireGuard:   %s:%d", *wgHost, *wgPort)
+	log.Printf("  Reply mode:  %s", mode)
 
 	// Start peer-management HTTP API if ADD_PEER_TOKEN is set
 	if port, iface, token, enabled := getPeerAPIConfig(); enabled {
@@ -78,6 +93,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("listen on :%d: %v", port, err)
 		}
+		tuneUDPBuffers(conn, fmt.Sprintf("bond listener :%d", port))
 		defer conn.Close()
 		conns = append(conns, conn)
 	}
@@ -91,6 +107,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	tuneUDPBuffers(wgConn, "WireGuard uplink")
 	defer wgConn.Close()
 
 	clients := &sync.Map{}
@@ -114,11 +131,13 @@ func main() {
 
 			clients.Range(func(_, v any) bool {
 				cs := v.(*clientState)
-				cs.mu.RLock()
-				primary := cs.primary
-				cs.mu.RUnlock()
-				if primary != nil && primary.conn != nil {
-					primary.conn.WriteToUDP(framed, primary.addr)
+				targets := replyTargets(cs, mode, time.Now())
+				for _, target := range targets {
+					if _, err := target.conn.WriteToUDP(framed, target.addr); err != nil {
+						log.Printf("Reply write error to %s via :%d: %v", target.addr, localPort(target.conn), err)
+					} else {
+						stats.addReply()
+					}
 				}
 				return true
 			})
@@ -161,6 +180,61 @@ func parsePorts(s string) ([]int, error) {
 	return out, nil
 }
 
+func parseReplyMode(s string) (replyMode, error) {
+	switch replyMode(strings.ToLower(strings.TrimSpace(s))) {
+	case replyModePrimary:
+		return replyModePrimary, nil
+	case replyModeAll:
+		return replyModeAll, nil
+	default:
+		return "", fmt.Errorf("%q must be primary or all", s)
+	}
+}
+
+func replyTargets(cs *clientState, mode replyMode, now time.Time) []*clientPath {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+
+	switch mode {
+	case replyModeAll:
+		targets := make([]*clientPath, 0, len(cs.paths))
+		for _, path := range cs.paths {
+			if path.conn == nil || now.Sub(path.lastSeen) > pathTTL {
+				continue
+			}
+			targets = append(targets, path)
+		}
+		return targets
+	default:
+		if cs.primary == nil || cs.primary.conn == nil || now.Sub(cs.primary.lastSeen) > pathTTL {
+			return nil
+		}
+		return []*clientPath{cs.primary}
+	}
+}
+
+func tuneUDPBuffers(conn *net.UDPConn, label string) {
+	if err := conn.SetReadBuffer(udpBufferBytes); err != nil {
+		log.Printf("Warning: set UDP read buffer for %s failed: %v", label, err)
+	}
+	if err := conn.SetWriteBuffer(udpBufferBytes); err != nil {
+		log.Printf("Warning: set UDP write buffer for %s failed: %v", label, err)
+	}
+}
+
+func cleanupExpiredPathsLocked(cs *clientState, now time.Time) {
+	for key, path := range cs.paths {
+		if now.Sub(path.lastSeen) <= pathTTL {
+			continue
+		}
+		delete(cs.paths, key)
+		if cs.primary == path {
+			cs.primary = nil
+		}
+		log.Printf("Expired path removed: %s", key)
+	}
+}
+
 func readLoop(conn *net.UDPConn, clients *sync.Map, stats *serverStats, wgConn *net.UDPConn) {
 	buf := make([]byte, bonding.MaxPacketSize+bonding.HeaderSize)
 	for {
@@ -195,6 +269,7 @@ func readLoop(conn *net.UDPConn, clients *sync.Map, stats *serverStats, wgConn *
 		if _, exists := cs.paths[addrKey]; !exists {
 			log.Printf("New path registered: %s via :%d", addrKey, localPort(conn))
 		}
+		cleanupExpiredPathsLocked(cs, time.Now())
 		path := &clientPath{addr: remoteAddr, conn: conn, lastSeen: time.Now()}
 		cs.paths[addrKey] = path
 		cs.primary = path
@@ -224,6 +299,7 @@ type serverStats struct {
 	mu      sync.Mutex
 	unique  uint64
 	dupes   uint64
+	replies uint64
 	lastLog time.Time
 }
 
@@ -241,13 +317,21 @@ func (s *serverStats) addDup() {
 	s.maybeLog()
 }
 
+func (s *serverStats) addReply() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.replies++
+	s.maybeLog()
+}
+
 func (s *serverStats) maybeLog() {
 	if time.Since(s.lastLog) > 10*time.Second {
 		total := s.unique + s.dupes
 		if total > 0 {
-			log.Printf("Stats: %d unique, %d dupes (%.0f%% redundancy), %d total",
+			log.Printf("Stats: %d unique, %d dupes (%.0f%% redundancy), %d replies, %d total",
 				s.unique, s.dupes,
 				float64(s.dupes)/float64(total)*100,
+				s.replies,
 				total)
 		}
 		s.lastLog = time.Now()
