@@ -14,6 +14,7 @@ object Protocol {
 
     /** Probe packet body — sent with seq=0; server echoes the bytes back unchanged. */
     val PROBE_PAYLOAD: ByteArray = "probe".toByteArray(Charsets.US_ASCII)
+    private const val REPLY_MODE_PREFIX = "reply-mode:"
 
     fun encode(seq: Int, payload: ByteArray, payloadOffset: Int, payloadLen: Int): ByteArray {
         val out = ByteArray(HEADER_SIZE + payloadLen)
@@ -43,6 +44,11 @@ object Protocol {
     }
 
     fun buildProbe(): ByteArray = encode(0, PROBE_PAYLOAD, 0, PROBE_PAYLOAD.size)
+
+    fun buildReplyMode(mode: String): ByteArray {
+        val payload = "$REPLY_MODE_PREFIX$mode".toByteArray(Charsets.US_ASCII)
+        return encode(0, payload, 0, payload.size)
+    }
 }
 
 /** Thread-safe monotonic sequence number generator starting at 1. */

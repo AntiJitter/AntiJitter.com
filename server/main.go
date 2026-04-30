@@ -6,9 +6,10 @@
 // WireGuard interface.
 //
 // Traffic flow:
-//   Client (Starlink) ──┐
-//                        ├──→ :bondPort → dedup → 127.0.0.1:wgPort (WireGuard)
-//   Client (4G/5G)   ──┘
+//
+//	Client (Starlink) ──┐
+//	                     ├──→ :bondPort → dedup → 127.0.0.1:wgPort (WireGuard)
+//	Client (4G/5G)   ──┘
 //
 // Multi-port: the server binds each requested port (e.g. 4567 and 443). Many
 // mobile carriers block non-well-known UDP ports, so offering a 443 fallback
@@ -18,6 +19,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -30,6 +32,13 @@ import (
 	"antijitter.com/server/bonding"
 )
 
+const (
+	wgMessageHandshakeInitiation = 1
+	wgMessageHandshakeResponse   = 2
+	wgMessageCookieReply         = 3
+	wgMessageTransportData       = 4
+)
+
 type clientPath struct {
 	addr     *net.UDPAddr
 	conn     *net.UDPConn // listener this path's packets arrive on — replies go back through this conn
@@ -37,10 +46,18 @@ type clientPath struct {
 }
 
 type clientState struct {
-	mu      sync.RWMutex
-	paths   map[string]*clientPath // key = addr.String()
-	dedup   bonding.Deduplicator
-	primary *clientPath // most recent path — used for replies
+	mu        sync.RWMutex
+	paths     map[string]*clientPath // key = addr.String()
+	dedup     bonding.Deduplicator
+	replyMode replyMode
+	primary   *clientPath // most recent path — used for replies
+}
+
+type clientRegistry struct {
+	clientIndex      sync.Map // WireGuard client sender index -> *clientState
+	serverIndex      sync.Map // WireGuard server sender index -> *clientState
+	pathIndex        sync.Map // remoteAddr.String() -> *clientState
+	pendingReplyMode sync.Map // remoteAddr.String() -> replyMode
 }
 
 type replyMode string
@@ -50,6 +67,7 @@ const (
 	replyModeAll     replyMode = "all"
 	pathTTL                    = 30 * time.Second
 	udpBufferBytes             = 4 * 1024 * 1024
+	replyModePrefix            = "reply-mode:"
 )
 
 func main() {
@@ -121,7 +139,7 @@ func main() {
 	tuneUDPBuffers(wgConn, "WireGuard uplink")
 	defer wgConn.Close()
 
-	clients := &sync.Map{}
+	registry := &clientRegistry{}
 	stats := &serverStats{}
 	replySeq := &bonding.Sequencer{}
 
@@ -140,18 +158,19 @@ func main() {
 			}
 			framed := bonding.Encode(replySeq.Next(), payload[:n])
 
-			clients.Range(func(_, v any) bool {
-				cs := v.(*clientState)
-				targets := replyTargets(cs, mode, time.Now())
-				for _, target := range targets {
-					if _, err := target.conn.WriteToUDP(framed, target.addr); err != nil {
-						log.Printf("Reply write error to %s via :%d: %v", target.addr, localPort(target.conn), err)
-					} else {
-						stats.addReply()
-					}
+			cs := registry.clientForWireGuardReply(payload[:n])
+			if cs == nil {
+				log.Printf("Dropping WireGuard reply with unknown client index")
+				continue
+			}
+			targets := replyTargets(cs, mode, time.Now())
+			for _, target := range targets {
+				if _, err := target.conn.WriteToUDP(framed, target.addr); err != nil {
+					log.Printf("Reply write error to %s via :%d: %v", target.addr, localPort(target.conn), err)
+				} else {
+					stats.addReply()
 				}
-				return true
-			})
+			}
 		}
 	}()
 
@@ -161,7 +180,7 @@ func main() {
 		wg.Add(1)
 		go func(conn *net.UDPConn) {
 			defer wg.Done()
-			readLoop(conn, clients, stats, wgConn)
+			readLoop(conn, registry, stats, wgConn)
 		}(conn)
 	}
 	log.Printf("Ready — waiting for client connections")
@@ -225,9 +244,27 @@ func parseReplyMode(s string) (replyMode, error) {
 	}
 }
 
-func replyTargets(cs *clientState, mode replyMode, now time.Time) []*clientPath {
+func parseReplyModeControl(payload []byte) (replyMode, bool) {
+	text := strings.TrimSpace(string(payload))
+	if !strings.HasPrefix(text, replyModePrefix) {
+		return "", false
+	}
+	mode, err := parseReplyMode(strings.TrimPrefix(text, replyModePrefix))
+	if err != nil {
+		log.Printf("Invalid reply-mode control %q: %v", text, err)
+		return "", true
+	}
+	return mode, true
+}
+
+func replyTargets(cs *clientState, defaultMode replyMode, now time.Time) []*clientPath {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
+
+	mode := defaultMode
+	if cs.replyMode != "" {
+		mode = cs.replyMode
+	}
 
 	switch mode {
 	case replyModeAll:
@@ -269,7 +306,120 @@ func cleanupExpiredPathsLocked(cs *clientState, now time.Time) {
 	}
 }
 
-func readLoop(conn *net.UDPConn, clients *sync.Map, stats *serverStats, wgConn *net.UDPConn) {
+func (r *clientRegistry) setReplyModeForPath(remoteAddr *net.UDPAddr, mode replyMode) {
+	if mode == "" {
+		return
+	}
+	addrKey := remoteAddr.String()
+	r.pendingReplyMode.Store(addrKey, mode)
+	if v, ok := r.pathIndex.Load(addrKey); ok {
+		cs := v.(*clientState)
+		cs.mu.Lock()
+		cs.replyMode = mode
+		cs.mu.Unlock()
+	}
+	log.Printf("Client reply mode set: %s from %s", mode, remoteAddr)
+}
+
+func (r *clientRegistry) registerPath(cs *clientState, remoteAddr *net.UDPAddr, conn *net.UDPConn) {
+	addrKey := remoteAddr.String()
+	cs.mu.Lock()
+	if v, ok := r.pendingReplyMode.Load(addrKey); ok {
+		cs.replyMode = v.(replyMode)
+	}
+	if _, exists := cs.paths[addrKey]; !exists {
+		log.Printf("New path registered: %s via :%d", addrKey, localPort(conn))
+	}
+	cleanupExpiredPathsLocked(cs, time.Now())
+	path := &clientPath{addr: remoteAddr, conn: conn, lastSeen: time.Now()}
+	cs.paths[addrKey] = path
+	cs.primary = path
+	cs.mu.Unlock()
+	r.pathIndex.Store(addrKey, cs)
+}
+
+func (r *clientRegistry) clientForInboundWireGuard(payload []byte, remoteAddr *net.UDPAddr) *clientState {
+	msg, ok := parseWireGuardMessage(payload)
+	if !ok {
+		return nil
+	}
+
+	switch msg.typ {
+	case wgMessageHandshakeInitiation:
+		return r.clientForIndex(msg.sender)
+	case wgMessageTransportData:
+		if v, ok := r.serverIndex.Load(msg.receiver); ok {
+			return v.(*clientState)
+		}
+	}
+
+	if v, ok := r.pathIndex.Load(remoteAddr.String()); ok {
+		return v.(*clientState)
+	}
+	return nil
+}
+
+func (r *clientRegistry) clientForWireGuardReply(payload []byte) *clientState {
+	msg, ok := parseWireGuardMessage(payload)
+	if !ok {
+		return nil
+	}
+
+	switch msg.typ {
+	case wgMessageHandshakeResponse:
+		v, ok := r.clientIndex.Load(msg.receiver)
+		if !ok {
+			return nil
+		}
+		cs := v.(*clientState)
+		r.serverIndex.Store(msg.sender, cs)
+		return cs
+	case wgMessageCookieReply, wgMessageTransportData:
+		if v, ok := r.clientIndex.Load(msg.receiver); ok {
+			return v.(*clientState)
+		}
+	}
+	return nil
+}
+
+func (r *clientRegistry) clientForIndex(index uint32) *clientState {
+	val, _ := r.clientIndex.LoadOrStore(index, &clientState{
+		paths: make(map[string]*clientPath),
+	})
+	return val.(*clientState)
+}
+
+type wireGuardMessage struct {
+	typ      uint32
+	sender   uint32
+	receiver uint32
+}
+
+func parseWireGuardMessage(payload []byte) (wireGuardMessage, bool) {
+	if len(payload) < 8 {
+		return wireGuardMessage{}, false
+	}
+	msg := wireGuardMessage{typ: binary.LittleEndian.Uint32(payload[:4])}
+	switch msg.typ {
+	case wgMessageHandshakeInitiation:
+		msg.sender = binary.LittleEndian.Uint32(payload[4:8])
+		return msg, true
+	case wgMessageHandshakeResponse:
+		if len(payload) < 12 {
+			return wireGuardMessage{}, false
+		}
+		msg.sender = binary.LittleEndian.Uint32(payload[4:8])
+		msg.receiver = binary.LittleEndian.Uint32(payload[8:12])
+		return msg, true
+	case wgMessageCookieReply, wgMessageTransportData:
+		msg.receiver = binary.LittleEndian.Uint32(payload[4:8])
+		return msg, true
+	default:
+		return wireGuardMessage{}, false
+	}
+}
+
+func readLoop(conn *net.UDPConn, registry *clientRegistry, stats *serverStats, wgConn *net.UDPConn) {
 	buf := make([]byte, bonding.MaxPacketSize+bonding.HeaderSize)
 	for {
 		n, remoteAddr, err := conn.ReadFromUDP(buf)
@@ -290,24 +440,19 @@ func readLoop(conn *net.UDPConn, clients *sync.Map, stats *serverStats, wgConn *
 			continue
 		}
 
-		// Single-client for now — in multi-user deployment we'd key by
-		// WireGuard peer IP derived from handshake or auth token.
-		key := "default"
-		val, _ := clients.LoadOrStore(key, &clientState{
-			paths: make(map[string]*clientPath),
-		})
-		cs := val.(*clientState)
-
-		cs.mu.Lock()
-		addrKey := remoteAddr.String()
-		if _, exists := cs.paths[addrKey]; !exists {
-			log.Printf("New path registered: %s via :%d", addrKey, localPort(conn))
+		if seq == 0 {
+			if mode, handled := parseReplyModeControl(payload); handled {
+				registry.setReplyModeForPath(remoteAddr, mode)
+				continue
+			}
 		}
-		cleanupExpiredPathsLocked(cs, time.Now())
-		path := &clientPath{addr: remoteAddr, conn: conn, lastSeen: time.Now()}
-		cs.paths[addrKey] = path
-		cs.primary = path
-		cs.mu.Unlock()
+
+		cs := registry.clientForInboundWireGuard(payload, remoteAddr)
+		if cs == nil {
+			log.Printf("Dropping client packet from %s with unknown WireGuard index", remoteAddr)
+			continue
+		}
+		registry.registerPath(cs, remoteAddr, conn)
 
 		if !cs.dedup.IsNew(seq) {
 			stats.addDup()

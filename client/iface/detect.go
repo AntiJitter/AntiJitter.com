@@ -132,6 +132,9 @@ func orderedServerAddrs(serverAddrs []string, usedHosts map[string]bool, distinc
 			out = append(out, addr)
 		}
 	}
+	if len(out) > 0 {
+		return out
+	}
 	for _, addr := range serverAddrs {
 		if usedHosts[serverAddrHost(addr)] {
 			out = append(out, addr)

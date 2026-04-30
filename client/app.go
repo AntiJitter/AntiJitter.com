@@ -47,14 +47,15 @@ type PathStat struct {
 type App struct {
 	ctx context.Context
 
-	mu          sync.RWMutex
-	active      bool
-	bondClient  *bonding.Client
-	wgTunnel    *tunnel.Tunnel
-	hostRoutes  []iface.HostRoute
-	token       string
-	devRouteAll bool
-	cancelStats context.CancelFunc
+	mu                      sync.RWMutex
+	active                  bool
+	bondClient              *bonding.Client
+	wgTunnel                *tunnel.Tunnel
+	hostRoutes              []iface.HostRoute
+	restoreHostRouteMetrics func()
+	token                   string
+	devRouteAll             bool
+	cancelStats             context.CancelFunc
 
 	toggleMu sync.Mutex // prevents double-toggle
 }
@@ -268,18 +269,23 @@ func (a *App) startGameMode() error {
 		return fmt.Errorf("no interfaces can reach any bonding server")
 	}
 
+	assignments := make([]iface.HostRouteAssignment, len(reachable))
+	for i, r := range reachable {
+		assignments[i] = iface.HostRouteAssignment{
+			ServerAddr: r.ServerAddr,
+			IfIndex:    r.Interface.Index,
+		}
+	}
+	restoreHostRouteMetrics := iface.PinHostRoutes(hostRoutes, assignments)
+
 	bondPaths := make([]bonding.PathConfig, len(reachable))
 	for i, r := range reachable {
-		ifIndex := r.Interface.Index
 		bondPaths[i] = bonding.PathConfig{
 			Name:       r.Interface.Name,
 			LocalAddr:  r.Interface.Addr,
-			IfIndex:    ifIndex,
+			IfIndex:    r.Interface.Index,
 			ServerAddr: r.ServerAddr,
 			Connected:  r.Connected || len(hostRoutes) > 0,
-			PrepareRoute: func() func() {
-				return iface.PreferHostRoute(hostRoutes, ifIndex)
-			},
 		}
 		log.Printf("Bonding path %d socket mode: connected=%v", i+1, bondPaths[i].Connected)
 		log.Printf("Bonding path %d: %s (%s) ifindex=%d → %s",
@@ -293,8 +299,11 @@ func (a *App) startGameMode() error {
 		ListenPort:  bondListenPort,
 		Paths:       bondPaths,
 		DataLimitMB: cfg.DataLimitMB,
+		ReplyMode:   bonding.ReplyModeAll,
 	})
 	if err != nil {
+		restoreHostRouteMetrics()
+		iface.RemoveHostRoutes(hostRoutes)
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("bonding init: %w", err)
 	}
@@ -317,6 +326,7 @@ func (a *App) startGameMode() error {
 	})
 	if err != nil {
 		bondClient.Stop()
+		restoreHostRouteMetrics()
 		iface.RemoveHostRoutes(hostRoutes)
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("wireguard tunnel: %w", err)
@@ -329,6 +339,7 @@ func (a *App) startGameMode() error {
 	a.bondClient = bondClient
 	a.wgTunnel = wgTunnel
 	a.hostRoutes = hostRoutes
+	a.restoreHostRouteMetrics = restoreHostRouteMetrics
 	a.cancelStats = cancelStats
 	a.mu.Unlock()
 
@@ -345,11 +356,13 @@ func (a *App) stopGameMode() {
 	client := a.bondClient
 	tun := a.wgTunnel
 	routes := a.hostRoutes
+	restoreRoutes := a.restoreHostRouteMetrics
 	cancel := a.cancelStats
 	a.active = false
 	a.bondClient = nil
 	a.wgTunnel = nil
 	a.hostRoutes = nil
+	a.restoreHostRouteMetrics = nil
 	a.cancelStats = nil
 	a.mu.Unlock()
 
@@ -361,6 +374,9 @@ func (a *App) stopGameMode() {
 	}
 	if client != nil {
 		client.Stop()
+	}
+	if restoreRoutes != nil {
+		restoreRoutes()
 	}
 	iface.RemoveHostRoutes(routes)
 
