@@ -79,7 +79,7 @@ Use these phrases consistently across web, Android, marketing, and notifications
 | The combined Wi-Fi + mobile-data tunnel | **Bonded connection** / **Game Mode** | "VPN", "tunnel" (in user copy) |
 | The tunnel master on/off control | **Game Mode** | (don't change — brand name) |
 | Send-strategy: every packet on every path | **Gaming** | "Redundant", "Duplicate" |
-| Send-strategy: primary only, mobile data as failover | **Browsing** | "Failover", "Backup", "Standby" |
+| Send-strategy: primary only, mobile data as failover | **Normal** | "Browsing", "Failover", "Backup", "Standby" |
 | Each underlying network (Wi-Fi, mobile data, Starlink) | **Path** | "interface", "link" |
 | A network handing off (cell tower change, Starlink satellite swap) | **Handoff** | "switch", "drop" |
 | Latency variance | **Jitter** | "ping variation" |
@@ -142,6 +142,61 @@ Implemented in `android/app/src/main/java/com/antijitter/app/ui/HomeScreen.kt`. 
 | `StarlinkPingChart` | TBD (Compose Canvas line chart) | not yet built |
 | Header tabs + status pill | n/a (Android is one screen for now) | — |
 
+## Windows app layout (current target)
+
+Windows should move toward the same information hierarchy as Android while
+keeping gateway controls explicit. The app is a utilitarian control surface, not
+a marketing page.
+
+Primary Windows screen:
+
+- Header/account row.
+- Game Mode hero card with active/off state and path count.
+- Mode selector: **Gaming** and **Normal**. Gaming should request
+  `reply-mode:all`; Normal should request `reply-mode:primary`.
+- Active paths grid with sent, received, packet counts, and later latency/jitter.
+- Session summary with sent, received, mobile data, failovers, unique RX, and
+  dupes once backend/client stats exist.
+- Temporary **DEV: route ALL traffic** row until route-all is a normal Windows
+  mode.
+- **Share to Xbox** panel for Windows gateway setup.
+
+### Share to Xbox panel
+
+The tested Windows sharing path is classic Internet Connection Sharing, not the
+modern Windows Mobile hotspot source dropdown.
+
+Guide the user through:
+
+1. Start Game Mode and verify the Windows PC public IP is the Germany/Hetzner
+   IP.
+2. Open classic Network Connections.
+3. Open the **AntiJitter** adapter properties.
+4. Sharing tab -> allow other users to connect through this computer.
+5. Choose the private adapter:
+   - `Local Area Connection* N` for Microsoft Wi-Fi Direct / Windows hotspot.
+   - Xbox Ethernet adapter for a wired Xbox test.
+6. Confirm shared devices get `192.168.137.x` addresses.
+7. Confirm the shared device public IP is the Hetzner IP and path counters rise.
+8. For Xbox, record NAT type and whether downloads/game traffic increase
+   AntiJitter counters. First Ethernet ICS test showed Moderate NAT and started
+   a large game update through AntiJitter.
+
+UX caveats:
+
+- Windows ICS usually shares to one private adapter at a time. Hotspot and Xbox
+  Ethernet can fight for the same sharing slot.
+- Do not tell users to choose the AntiJitter adapter in the modern Mobile
+  hotspot "Share my Internet connection from" dropdown; Windows often does not
+  offer it there.
+- Open NAT is not guaranteed. Use "console sharing" or "improved NAT" until
+  port forwarding / UPnP / allocated port ranges are implemented.
+- Gaming mode can duplicate large console updates over mobile data. The UI
+  should default everyday sharing to Normal mode once that exists, and reserve
+  full redundancy for active game/voice traffic.
+- Android hotspot sharing remains unsupported; do not copy this Windows gateway
+  language to Android.
+
 ## Backend gaps that block UI completion
 
 The Android UI now reserves slots for these but shows `—` until they exist:
@@ -155,6 +210,17 @@ The Android UI now reserves slots for these but shows `—` until they exist:
 
 Track every change here so the Android port is a translation, not a redesign.
 
+### 2026-04-30 - Windows gateway proof and mode-aware replies
+- Windows route-all proof worked: the Windows PC routed normal traffic through AntiJitter and showed the Germany/Hetzner public IP instead of Starlink.
+- Classic Windows Internet Connection Sharing from the AntiJitter adapter to a Microsoft Wi-Fi Direct hotspot worked. A connected iPhone received a `192.168.137.x` address, showed the Hetzner public IP, and caused Windows AntiJitter path counters to rise during speedtest.
+- Modern Windows Mobile hotspot settings may not list AntiJitter as a source adapter. The UI should guide classic adapter Sharing instead.
+- Windows currently requests `reply-mode:all` and behaves like Gaming mode. Add a Windows Mode selector so Gaming maps to `reply-mode:all` and Normal maps to `reply-mode:primary`.
+- Android now sends mode-aware server controls too: Normal/Browsing requests `primary` to save mobile downlink where possible; Gaming requests `all` for redundancy.
+- User-facing copy should use **Normal** instead of **Browsing** going forward. Historical changelog entries and internal code may still say Browsing until the UI/code rename lands.
+- The Germany bonding server now uses two public IPv4s (`178.104.168.177`, `195.201.250.234`) so Windows can pin different physical adapters to different destination hosts.
+- Keep Open NAT copy conservative. Current gateway sharing is double NAT; dedicated port forwarding or allocated public port ranges are future work.
+- Xbox Ethernet ICS test showed Moderate NAT and immediately started a large Call of Duty update through AntiJitter. This is a good traffic-flow proof and a warning that full Gaming redundancy needs a Normal-mode escape hatch for big downloads.
+
 ### 2026-04-28 - Android path row readability
 - Active path rows now put ping on the right edge as the primary value, with jitter directly below it in smaller dim text. Path names stay on the left with bytes and packet counts underneath.
 - User-facing cellular copy is now **Mobile data** in Android UI and service path labels. Internal accounting can still use `cellular*` names where it reflects Android transport semantics.
@@ -162,7 +228,7 @@ Track every change here so the Android port is a translation, not a redesign.
 - Android now has a compact **Starlink** card below Session when the dish is detected. First cut is local reachability only: dish ping, current unreachable state, last outage length, recent reachable/unreachable events, and an opt-in alert toggle that requests Android notification permission when needed. Full obstruction/snow/SNR telemetry still needs Starlink gRPC protobuf integration and should remain a separate feature decision.
 - We are not showing 4G/5G yet; Android transport type only tells us cellular/mobile data reliably without adding telephony permissions.
 - Mode selector and session stats are more compact so active telemetry sits higher on phone screens. Session stats are a single row of four metrics with a small **Share Game Mode** action.
-- **Share Game Mode** is a modal, not a full page yet. It explains Android hotspot sharing, opens hotspot settings, and opens VPN settings for Always-on / Block connections without VPN. Keep lockdown framed as strict hotspot protection, not default onboarding.
+- **Share Game Mode** is a modal, not a full page yet. Keep it conservative: it can open Android hotspot and VPN settings for experiments, but current tests showed hotspot/USB tether clients bypass the app VPN. Do not frame Android sharing as supported onboarding.
 - Hero card now includes a compact real path-latency sparkline for Wi-Fi and Mobile data. This uses Android `LatencyMonitor` samples only; do not port the dashboard's simulated Game Mode comparison line until we have true through-tunnel/bonded probe samples.
 - Latency sparkline scales to a fixed 200 ms ceiling and applies median-of-3 smoothing for drawing only. Repeated above-cap samples, or severe single spikes, are pinned to the top edge with same-path markers so a Starlink handoff spike does not flatten the normal 30-120 ms range. Missing samples create visible gaps instead of diagonal reconnect lines. The visible legend should stay focused on path colors, not the cap mechanics.
 - Android session **Mobile** now means total mobile path traffic, not only mobile upload. Path rows also show sent + received path bytes, matching what users compare against carrier data counters.
@@ -193,11 +259,11 @@ Track every change here so the Android port is a translation, not a redesign.
 - Removed the "How it works" `HelpCard` from the main screen — to be moved to a future Settings → About link.
 - DEV route-all toggle stays at the bottom, anchored with the same `BEGIN/END DEV-TOGGLE` comment markers for easy removal.
 
-### 2026-04-23 — Android: dual-icon + tethering parity with Speedify
+### 2026-04-23 — Android: dual-icon + VPN attribution parity with Speedify
 - `VpnService.setUnderlyingNetworks(...)` now called whenever a path is added or removed. This is what makes Android show **both Wi-Fi and Cellular icons** simultaneously in the status bar — the same effect Speedify produces. Without it, the system only attributes traffic to whichever transport happens to be the default route.
-- `VpnService.Builder.setMetered(false)` declared on the TUN. Tethered apps no longer get background-throttled because of how Android attributes our VPN's metering. Cellular's metering still flows through via the underlying-networks call so the data-cap accounting stays correct.
+- `VpnService.Builder.setMetered(false)` declared on the TUN. This improves Android's metering treatment for the phone's VPN traffic. Cellular's metering still flows through via the underlying-networks call so the data-cap accounting stays correct.
 - `BondingClient.activeNetworks()` exposes the current underlying `Network` array.
-- These two together are also the prerequisite for tethered devices to actually go through the bonded tunnel on Android 12+ — combined with the user enabling **Always-on VPN + Block connections without VPN** in Android Settings → Network → VPN. We can't enable that flag from inside the app; it's a system permission.
+- Later Pixel 7 / Android 16 testing showed these two calls do **not** make Android hotspot or USB tethered clients route through the app VPN, even with **Always-on VPN + Block connections without VPN** enabled. Keep this as VPN attribution/UI parity only; do not claim Android tethering support.
 
 ### 2026-04-23 — Bonding: Gaming vs Browsing mode
 Two send strategies on the same WireGuard tunnel:
