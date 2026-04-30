@@ -20,7 +20,7 @@ Variants by channel:
 Starlink and mobile connections spike. A single route — even a fast one — has moments where latency doubles or a handoff drops packets. Games are real-time; one spike means a death, a missed shot, or a disconnect. No existing product fixes this at the transport layer for ordinary gamers without a rack of gear.
 
 **What AntiJitter does in plain English:**
-Game Mode sends traffic through Wi-Fi and mobile data to the same server. In Gaming mode, packets can race across both paths and the server keeps the first copy that arrives. In Browsing mode, Wi-Fi stays primary and mobile data is used as a rescue path. If Starlink spikes or drops a handoff, the other path can keep the session alive.
+Game Mode sends traffic through Wi-Fi and mobile data to the same server. In Gaming mode, packets can race across both paths and the server keeps the first copy that arrives. In Normal mode, Wi-Fi stays primary and mobile data is used as a rescue path. If Starlink spikes or drops a handoff, the other path can keep the session alive.
 
 This is *bonding*, not load-balancing. No DNS tricks. No proxy. Real multi-path UDP.
 
@@ -43,13 +43,14 @@ This is *bonding*, not load-balancing. No DNS tricks. No proxy. Real multi-path 
 ### AntiJitter App — *shipping now*
 - Android app + WireGuard bonding server
 - Game Mode toggle: one tap, dual-path active
-- Gaming mode (every packet on every path) vs Browsing mode (Wi-Fi primary, mobile as failover)
+- Gaming mode (every packet on every path) vs Normal mode (Wi-Fi primary, mobile as failover)
 - Per-path live latency + jitter + seamless failover count
 - **$5/month** — one Starbucks drink
 
 ### AntiJitter Windows gateway - *proof/beta*
 - Windows app routes the PC through the bonded tunnel and can be shared with classic Windows Internet Connection Sharing
 - Tested Windows hotspot sharing: a device connected to the Windows hotspot saw the Germany/Hetzner IP and raised AntiJitter counters
+- Tested Xbox Ethernet sharing: Xbox traffic flowed through AntiJitter and Xbox NAT showed Moderate
 - This is the stepping stone for Xbox/PC sharing before SWITCH hardware
 - Open NAT is not promised yet; console NAT needs separate forwarding work
 
@@ -93,7 +94,7 @@ Copy must use these terms consistently across app, marketing, and video. Do not 
 | A path dropped and the other kept going | **Seamless failover** | "failover caught", "outage avoided" |
 | The combined Wi-Fi + mobile tunnel | **Bonded connection** / **Game Mode** | "VPN", "tunnel" (in user copy) |
 | Fan-out: every packet on every path | **Gaming** | "Redundant", "Duplicate" |
-| Failover-only: Wi-Fi primary, mobile backup | **Browsing** | "Standby", "Backup mode" |
+| Failover-only: Wi-Fi primary, mobile backup | **Normal** | "Browsing", "Standby", "Backup mode" |
 | Each underlying network | **Path** | "interface", "link" |
 | Satellite/tower handoff | **Handoff** | "switch", "drop" |
 | Latency variance | **Jitter** | "ping variation", "lag spike" |
@@ -139,10 +140,11 @@ Typography: heavy numerals (800 weight), tabular-nums on all live metrics, minim
 
 ## What's actually built today (April 2026)
 
-- **Android app** — Game Mode toggle, Gaming/Browsing mode, per-path latency + jitter, session stats, seamless failover counter, phone-only bonded traffic
+- **Android app** — Game Mode toggle, Gaming/Normal mode, per-path latency + jitter, session stats, seamless failover counter, phone-only bonded traffic
 - **Bonding server** — Germany VPS, WireGuard + multi-path UDP dedup, two public bonding IPs, per-client reply modes, WireGuard-index client isolation
 - **Dashboard** — `app.antijitter.com`, React SPA, WebSocket latency stream, StarlinkPingChart, Stripe scaffold, user auth
-- **Windows gateway proof** — route-all Windows PC traffic through AntiJitter; classic ICS hotspot sharing made a connected device show the Hetzner public IP
+- **Windows gateway proof** — route-all Windows PC traffic through AntiJitter; classic ICS hotspot sharing made a connected device show the Hetzner public IP; Xbox Ethernet ICS produced Moderate NAT and started a large game update through AntiJitter
+- **Real Xbox session proof** — 3+ hour Call of Duty session through Windows gateway had zero disconnects, with in-game ping roughly 40-70 ms
 - **Protocol** — seq header, sliding-window dedup, fan-out on all active paths, backward-compatible `seq=0` control payloads for reply mode
 - **Dual status-bar icons** — `setUnderlyingNetworks` wired; Android shows both Wi-Fi + cellular icons simultaneously
 
@@ -150,7 +152,7 @@ Typography: heavy numerals (800 weight), tabular-nums on all live metrics, minim
 
 ## What is NOT built (roadmap / honest disclaimer)
 
-- **Windows polished modes** — Windows route-all works, but Gaming/Browsing UI parity is not built yet
+- **Windows polished modes** — Windows route-all works, but Gaming/Normal UI parity is not built yet
 - **SWITCH hardware** — concept stage; Kickstarter pre-launch
 - **iOS** — not planned until Android + Windows are stable
 - **Game-only routing** — ASN IP ranges in DB, not yet wired into AllowedIPs (routes all traffic today)
@@ -158,6 +160,8 @@ Typography: heavy numerals (800 weight), tabular-nums on all live metrics, minim
 - **True through-tunnel bonded latency** — current HeroLatencyCard shows `min(path RTTs)` as an approximation; real bonded probe requires seq-tagged round-trips through the tunnel
 - **Console/Open NAT support** — Windows gateway sharing is proven for at least one hotspot client, but Xbox testing and Open NAT forwarding are not done
 - **Android hotspot sharing** — Android hotspot and USB tethered clients bypass the app VPN in current tests
+- **Game-only protection** — not built yet; large console updates can burn mobile data in Gaming mode, so game/update classification is future premium/pro work
+- **Multiple simultaneous devices per account** — not built yet; current config is one WireGuard identity per subscription/user, so Android + Windows on the same account can collide
 
 ---
 
