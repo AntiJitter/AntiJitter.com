@@ -261,7 +261,7 @@ func (a *App) startGameMode() error {
 	hostRoutes := iface.AddHostRoutes(allIfaces, cfg.BondingServers)
 	log.Printf("Host routes installed before tunnel start: %d", len(hostRoutes))
 
-	reachable := iface.Probe(allIfaces, cfg.BondingServers, 8*time.Second)
+	reachable := iface.Probe(allIfaces, cfg.BondingServers, 3*time.Second)
 	if len(reachable) == 0 {
 		iface.RemoveHostRoutes(hostRoutes)
 		runtime.EventsEmit(a.ctx, "connecting", false)

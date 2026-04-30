@@ -54,6 +54,7 @@ func AddHostRoutes(interfaces []Interface, serverAddrs []string) []HostRoute {
 			log.Printf("route: added %s/32 via %s IF %d (%s)", ip, gw, ifc.Index, ifc.Name)
 		}
 	}
+	auditHostRoutes(serverIPs)
 	return routes
 }
 
@@ -135,6 +136,28 @@ func deleteRoute(destIP, gateway string, ifIndex int) error {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func auditHostRoutes(serverIPs []string) {
+	if len(serverIPs) == 0 {
+		return
+	}
+	var quoted []string
+	for _, ip := range serverIPs {
+		quoted = append(quoted, fmt.Sprintf("'%s'", ip))
+	}
+	cmd := fmt.Sprintf(`$targets=@(%s); foreach($t in $targets){ $prefix="$t/32"; Get-NetRoute -DestinationPrefix $prefix -ErrorAction SilentlyContinue | Sort-Object RouteMetric,InterfaceMetric,InterfaceIndex | ForEach-Object { "host-route $prefix => alias=$($_.InterfaceAlias) if=$($_.InterfaceIndex) nexthop=$($_.NextHop) routeMetric=$($_.RouteMetric) ifMetric=$($_.InterfaceMetric)" }; $best=Find-NetRoute -RemoteIPAddress $t -ErrorAction SilentlyContinue | Select-Object -First 1; if($best){ "host-route best $t => alias=$($best.InterfaceAlias) if=$($best.InterfaceIndex) prefix=$($best.DestinationPrefix) nexthop=$($best.NextHop) routeMetric=$($best.RouteMetric) ifMetric=$($best.InterfaceMetric)" } }`, strings.Join(quoted, ","))
+	out, err := winexec.Output("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", cmd)
+	if err != nil {
+		log.Printf("route: host route audit failed: %v", err)
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			log.Printf("route: %s", line)
+		}
+	}
 }
 
 // getDefaultGateways returns ifIndex → gateway IP for all adapters that

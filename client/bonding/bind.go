@@ -55,6 +55,12 @@ func ListenUDPViaInterface(serverAddr, localIP string, ifIndex int) (*net.UDPCon
 		pc.Close()
 		return nil, nil, fmt.Errorf("listen returned %T, want *net.UDPConn", pc)
 	}
+	if ifIndex > 0 {
+		if err := BindSocketToInterface(udp, ifIndex); err != nil {
+			udp.Close()
+			return nil, nil, fmt.Errorf("post-bind interface bind ifindex=%d: %w", ifIndex, err)
+		}
+	}
 
 	log.Printf("ListenUDPViaInterface: bound %s ifindex=%d remote=%s",
 		udp.LocalAddr(), ifIndex, remote)
@@ -85,6 +91,12 @@ func DialUDPViaInterface(serverAddr, localIP string, ifIndex int, timeout time.D
 	if !ok {
 		conn.Close()
 		return nil, fmt.Errorf("dial returned %T, want *net.UDPConn", conn)
+	}
+	if ifIndex > 0 {
+		if err := BindSocketToInterface(udp, ifIndex); err != nil {
+			udp.Close()
+			return nil, fmt.Errorf("post-dial interface bind ifindex=%d: %w", ifIndex, err)
+		}
 	}
 	return udp, nil
 }
