@@ -79,7 +79,7 @@ Use these phrases consistently across web, Android, marketing, and notifications
 | The combined Wi-Fi + mobile-data tunnel | **Bonded connection** / **Game Mode** | "VPN", "tunnel" (in user copy) |
 | The tunnel master on/off control | **Game Mode** | (don't change — brand name) |
 | Send-strategy: every packet on every path | **Gaming** | "Redundant", "Duplicate" |
-| Send-strategy: primary only, mobile data as failover | **Browsing** | "Failover", "Backup", "Standby" |
+| Send-strategy: primary only, mobile data as failover | **Normal** | "Browsing", "Failover", "Backup", "Standby" |
 | Each underlying network (Wi-Fi, mobile data, Starlink) | **Path** | "interface", "link" |
 | A network handing off (cell tower change, Starlink satellite swap) | **Handoff** | "switch", "drop" |
 | Latency variance | **Jitter** | "ping variation" |
@@ -152,8 +152,8 @@ Primary Windows screen:
 
 - Header/account row.
 - Game Mode hero card with active/off state and path count.
-- Mode selector: **Gaming** and **Browsing**. Gaming should request
-  `reply-mode:all`; Browsing should request `reply-mode:primary`.
+- Mode selector: **Gaming** and **Normal**. Gaming should request
+  `reply-mode:all`; Normal should request `reply-mode:primary`.
 - Active paths grid with sent, received, packet counts, and later latency/jitter.
 - Session summary with sent, received, mobile data, failovers, unique RX, and
   dupes once backend/client stats exist.
@@ -178,6 +178,9 @@ Guide the user through:
    - Xbox Ethernet adapter for a wired Xbox test.
 6. Confirm shared devices get `192.168.137.x` addresses.
 7. Confirm the shared device public IP is the Hetzner IP and path counters rise.
+8. For Xbox, record NAT type and whether downloads/game traffic increase
+   AntiJitter counters. First Ethernet ICS test showed Moderate NAT and started
+   a large game update through AntiJitter.
 
 UX caveats:
 
@@ -188,6 +191,9 @@ UX caveats:
   offer it there.
 - Open NAT is not guaranteed. Use "console sharing" or "improved NAT" until
   port forwarding / UPnP / allocated port ranges are implemented.
+- Gaming mode can duplicate large console updates over mobile data. The UI
+  should default everyday sharing to Normal mode once that exists, and reserve
+  full redundancy for active game/voice traffic.
 - Android hotspot sharing remains unsupported; do not copy this Windows gateway
   language to Android.
 
@@ -208,10 +214,25 @@ Track every change here so the Android port is a translation, not a redesign.
 - Windows route-all proof worked: the Windows PC routed normal traffic through AntiJitter and showed the Germany/Hetzner public IP instead of Starlink.
 - Classic Windows Internet Connection Sharing from the AntiJitter adapter to a Microsoft Wi-Fi Direct hotspot worked. A connected iPhone received a `192.168.137.x` address, showed the Hetzner public IP, and caused Windows AntiJitter path counters to rise during speedtest.
 - Modern Windows Mobile hotspot settings may not list AntiJitter as a source adapter. The UI should guide classic adapter Sharing instead.
-- Windows currently requests `reply-mode:all` and behaves like Gaming mode. Add a Windows Mode selector so Gaming maps to `reply-mode:all` and Browsing maps to `reply-mode:primary`.
-- Android now sends mode-aware server controls too: Browsing requests `primary` to save mobile downlink where possible; Gaming requests `all` for redundancy.
+- Windows currently requests `reply-mode:all` and behaves like Gaming mode. Add a Windows Mode selector so Gaming maps to `reply-mode:all` and Normal maps to `reply-mode:primary`.
+- Android now sends mode-aware server controls too: Normal/Browsing requests `primary` to save mobile downlink where possible; Gaming requests `all` for redundancy.
+- User-facing copy should use **Normal** instead of **Browsing** going forward. Historical changelog entries and internal code may still say Browsing until the UI/code rename lands.
 - The Germany bonding server now uses two public IPv4s (`178.104.168.177`, `195.201.250.234`) so Windows can pin different physical adapters to different destination hosts.
 - Keep Open NAT copy conservative. Current gateway sharing is double NAT; dedicated port forwarding or allocated public port ranges are future work.
+- Xbox Ethernet ICS test showed Moderate NAT and immediately started a large Call of Duty update through AntiJitter. This is a good traffic-flow proof and a warning that full Gaming redundancy needs a Normal-mode escape hatch for big downloads.
+- A later 3+ hour Call of Duty session through Windows Ethernet ICS had zero disconnects and mostly ~60 ms in-game ping. Treat this as the best current proof point for Windows gateway UX.
+- Starting Android Game Mode on the same AntiJitter account during the Xbox session caused one lobby disconnect. The likely product requirement is per-device credentials/device slots; do not design account UX around one shared WireGuard identity running on multiple devices.
+
+### Windows/Xbox test matrix
+
+Record these for every real Xbox session:
+
+- Windows source paths active: Starlink Ethernet, mobile hotspot Wi-Fi, third path if present.
+- Share target: Xbox Ethernet or Windows hotspot.
+- Xbox NAT type: Moderate is acceptable for now; Open NAT is future forwarding work.
+- Session length, disconnect count, rubber-band events, and observed in-game ping range.
+- Windows path counters before/after and mobile data used.
+- Whether any other AntiJitter client was started on the same account during the session.
 
 ### 2026-04-28 - Android path row readability
 - Active path rows now put ping on the right edge as the primary value, with jitter directly below it in smaller dim text. Path names stay on the left with bytes and packet counts underneath.
