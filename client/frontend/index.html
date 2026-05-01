@@ -6,7 +6,73 @@
   <title>AntiJitter</title>
 </head>
 <body>
-  <div id="root"></div>
+  <style>
+    body {
+      margin: 0;
+      background: #0a0a0a;
+      color: #f5f5f7;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+
+    .boot-fallback {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 28px;
+      box-sizing: border-box;
+      text-align: center;
+    }
+
+    .boot-spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid rgba(255, 255, 255, 0.12);
+      border-top-color: #00c8d7;
+      border-radius: 50%;
+      animation: boot-spin 0.8s linear infinite;
+    }
+
+    .boot-title {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .boot-error {
+      max-width: 320px;
+      color: #ff453a;
+      font-size: 13px;
+      line-height: 1.4;
+      display: none;
+    }
+
+    @keyframes boot-spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+  <div id="root">
+    <div class="boot-fallback">
+      <div class="boot-spinner"></div>
+      <div class="boot-title">Starting AntiJitter</div>
+      <div class="boot-error" id="boot-error"></div>
+    </div>
+  </div>
+  <script>
+    window.addEventListener("error", function (event) {
+      var error = document.getElementById("boot-error");
+      if (!error) return;
+      error.textContent = "Frontend failed to load: " + (event.message || "unknown error");
+      error.style.display = "block";
+    });
+    window.addEventListener("unhandledrejection", function (event) {
+      var error = document.getElementById("boot-error");
+      if (!error) return;
+      error.textContent = "Frontend failed to start: " + (event.reason || "unknown error");
+      error.style.display = "block";
+    });
+  </script>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
