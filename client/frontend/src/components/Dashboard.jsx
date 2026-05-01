@@ -19,13 +19,13 @@ const EMPTY_STATUS = {
 const MODES = {
   normal: {
     label: 'Normal',
-    summary: 'Starlink first. Mobile data stays protected.',
+    summary: 'Starlink first. Mobile data ready for satellite handoff.',
     detail: 'Best for downloads, updates, browsing, and leaving AntiJitter on.'
   },
   gaming: {
     label: 'Gaming',
-    summary: 'Every packet races across active paths.',
-    detail: 'Best for live matches and voice chat. Uses more mobile data.'
+    summary: 'Every packet is sent over Starlink and Mobile data.',
+    detail: 'Best for gaming and real-time voice and video calls. Uses more Mobile data.'
   }
 }
 
@@ -42,7 +42,16 @@ function pathKind(path, index) {
   return index === 0 ? 'starlink' : 'mobile'
 }
 
+function latencyClass(ms) {
+  if (typeof ms !== 'number' || ms <= 0) return 'unknown'
+  if (ms < 50) return 'good'
+  if (ms < 100) return 'ok'
+  if (ms < 200) return 'warn'
+  return 'bad'
+}
+
 function appendLatencyHistory(history, paths = []) {
+  if (!Array.isArray(paths)) return history
   const next = { ...history }
   paths.forEach((path, index) => {
     const key = `${path.name}-${index}`
@@ -53,6 +62,8 @@ function appendLatencyHistory(history, paths = []) {
 }
 
 function LatencyChart({ paths, history }) {
+  const max = 240
+  const unplayable = 200
   const series = (paths ?? []).map((path, index) => ({
     key: `${path.name}-${index}`,
     name: path.name,
@@ -62,8 +73,6 @@ function LatencyChart({ paths, history }) {
     values: history[`${path.name}-${index}`] ?? []
   })).filter(item => item.values.some(v => typeof v === 'number'))
 
-  const allValues = series.flatMap(item => item.values).filter(v => typeof v === 'number')
-  const max = Math.max(80, Math.min(240, Math.ceil((Math.max(...allValues, 0) + 20) / 20) * 20))
   const width = 320
   const height = 96
   const pad = 10
@@ -82,14 +91,11 @@ function LatencyChart({ paths, history }) {
     <section className="latency-card">
       <div className="section-label-row">
         <span className="section-label">Latency trend</span>
-        <span className="section-meta">{series.length > 0 ? `${max} ms scale` : 'Collecting'}</span>
       </div>
       <svg className="latency-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Per-path latency trend">
         <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} />
         <line x1={pad} y1={pad} x2={pad} y2={height - pad} />
-        {max >= 200 && (
-          <line className="latency-threshold" x1={pad} y1={height - pad - (200 / max) * (height - pad * 2)} x2={width - pad} y2={height - pad - (200 / max) * (height - pad * 2)} />
-        )}
+        <line className="latency-threshold" x1={pad} y1={height - pad - (unplayable / max) * (height - pad * 2)} x2={width - pad} y2={height - pad - (unplayable / max) * (height - pad * 2)} />
         {series.map(item => (
           <polyline
             key={item.key}
@@ -122,12 +128,12 @@ export default function Dashboard({ onLogout }) {
   useEffect(() => {
     callGo('GetStatus').then(s => {
       if (!s) return
-      setStatus({ ...EMPTY_STATUS, ...s })
+      setStatus({ ...EMPTY_STATUS, ...s, paths: Array.isArray(s.paths) ? s.paths : [] })
       setLatencyHistory(h => appendLatencyHistory(h, s.paths))
     }).catch(() => {})
 
     onEvent('status', s => {
-      setStatus(prev => ({ ...prev, ...s }))
+      setStatus(prev => ({ ...prev, ...s, paths: Array.isArray(s.paths) ? s.paths : [] }))
       setLatencyHistory(h => appendLatencyHistory(h, s.paths))
     })
     onEvent('connecting', v => setConnecting(v))
@@ -200,25 +206,37 @@ export default function Dashboard({ onLogout }) {
   const dataPct = dataLimit > 0 ? Math.min(100, (dataUsed / dataLimit) * 100) : 0
   const dataBarColor = dataPct > 90 ? 'var(--orange)' : 'var(--mobile)'
   const devRouteAll = status.dev_route_all ?? true
-  const totalUp = status.paths?.reduce((sum, p) => sum + (p.bytes_mb ?? 0), 0) ?? 0
   const totalDown = status.paths?.reduce((sum, p) => sum + (p.rx_bytes_mb ?? 0), 0) ?? 0
+  const totalDownPackets = status.paths?.reduce((sum, p) => sum + (p.rx_packets ?? 0), 0) ?? 0
   const starlink = status.starlink ?? EMPTY_STATUS.starlink
+  const latencyValues = (status.paths ?? [])
+    .map(p => p.latency_ms)
+    .filter(v => typeof v === 'number' && v > 0)
+  const bestLatency = latencyValues.length > 0 ? Math.min(...latencyValues) : null
+  const statusLabel = connecting ? 'Connecting' : isOn ? 'Connected' : 'Idle'
 
   return (
     <div className="dashboard">
       <header className="dash-header">
-        <div className="dash-logo">
-          <span className="dash-logo-icon">AJ</span>
-          <span className="dash-logo-text">AntiJitter</span>
+        <div className="brand-lockup">
+          <div className="brand-title">
+            <span>Anti</span><span>Jitter</span>
+          </div>
+          <div className="brand-subtitle">Windows gateway</div>
         </div>
-        <button className="btn-logout" onClick={logout}>Logout</button>
+        <div className="header-actions">
+          <div className={`connection-pill ${isOn ? 'connected' : ''} ${connecting ? 'connecting' : ''}`}>
+            <span />
+            {statusLabel}
+          </div>
+          <button className="btn-logout" onClick={logout}>Sign out</button>
+        </div>
       </header>
 
       <main className="dashboard-scroll">
         <section className={`connection-card ${isOn ? 'active' : ''}`}>
           <div className="connection-top">
             <div>
-              <div className="eyebrow">Connection</div>
               <div className="connection-title">
                 {connecting ? 'Connecting' : isOn ? 'AntiJitter Active' : 'AntiJitter Off'}
               </div>
@@ -226,12 +244,24 @@ export default function Dashboard({ onLogout }) {
             <div className={`status-dot ${isOn ? 'on' : ''} ${isBusy ? 'busy' : ''}`} />
           </div>
 
-          <div className="blend-row" aria-hidden="true">
-            <span className="blend-chip starlink">Starlink</span>
-            <span className="blend-plus">+</span>
-            <span className="blend-chip mobile">Mobile data</span>
-            <span className="blend-equals">=</span>
-            <span className="blend-chip bonded">Bonded</span>
+          {isOn && (
+            <div className="compact-latency">
+              <span>{mode === 'gaming' ? 'Bonded latency' : 'Best path latency'}</span>
+              <strong className={`latency-value ${latencyClass(bestLatency)}`}>{bestLatency === null ? '--' : bestLatency.toFixed(0)}<em>ms</em></strong>
+            </div>
+          )}
+
+          <div className={`mode-toggle in-connection ${isOn || isBusy ? 'locked' : ''}`}>
+            {Object.entries(MODES).map(([key, item]) => (
+              <button
+                key={key}
+                className={`mode-option ${mode === key ? 'selected' : ''}`}
+                onClick={() => setMode(key)}
+                disabled={isOn || isBusy}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
 
           <button
@@ -247,25 +277,15 @@ export default function Dashboard({ onLogout }) {
           <div className="connection-sub">
             {isOn ? `${pathCount} path${pathCount !== 1 ? 's' : ''} bonded in ${modeInfo.label} mode` : modeInfo.summary}
           </div>
-        </section>
-
-        <section className="mode-card">
-          <div className="section-label">Mode</div>
-          <div className={`mode-toggle ${isOn || isBusy ? 'locked' : ''}`}>
-            {Object.entries(MODES).map(([key, item]) => (
-              <button
-                key={key}
-                className={`mode-option ${mode === key ? 'selected' : ''}`}
-                onClick={() => setMode(key)}
-                disabled={isOn || isBusy}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <div className="mode-copy">
+          <div className={`mode-copy ${isOn ? 'active-chart' : ''}`}>
+            {isOn && status.paths?.length > 0 ? (
+              <LatencyChart paths={status.paths} history={latencyHistory} />
+            ) : (
+              <>
             <strong>{modeInfo.summary}</strong>
             <span>{modeInfo.detail}</span>
+              </>
+            )}
           </div>
         </section>
 
@@ -276,47 +296,57 @@ export default function Dashboard({ onLogout }) {
                 <span className="section-label">Active paths</span>
                 <span className="section-meta">{pathCount} online</span>
               </div>
-              <div className="paths-grid">
+              <div className="paths-list">
                 {status.paths.map((p, index) => {
                   const kind = pathKind(p, index)
                   return (
                     <div key={`${p.name}-${index}`} className={`path-card ${kind} ${p.active ? 'active' : 'inactive'}`}>
-                      <div className="path-top">
-                        <div className={`path-dot ${p.active ? 'on' : 'off'}`} />
-                        <div>
-                          <span className="path-name">{p.name}</span>
-                          <span className="path-kind">{kind === 'starlink' ? 'Starlink' : 'Mobile data'}</span>
+                      <div className="path-main">
+                        <div className="path-top">
+                          <div className={`path-dot ${p.active ? 'on' : 'off'}`} />
+                          <div>
+                            <span className={`path-kind ${kind}`}>{kind === 'starlink' ? 'Starlink' : 'Mobile data'}</span>
+                            <span className="path-name">{p.name}</span>
+                          </div>
+                        </div>
+                        <div className="path-metrics">
+                          <span>{formatMB(p.rx_bytes_mb)} down</span>
+                          <span>{(p.rx_packets ?? 0).toLocaleString()} packets</span>
+                          {p.send_errors > 0 && <span className="path-errors">{p.send_errors.toLocaleString()} send errors</span>}
                         </div>
                       </div>
-                      <div className="path-metrics">
-                        <span>{formatMB(p.bytes_mb)} up</span>
-                        <span>{formatMB(p.rx_bytes_mb)} down</span>
-                        {typeof p.latency_ms === 'number' && p.latency_ms > 0 && (
-                          <span>{p.latency_ms.toFixed(0)} ms +/-{(p.jitter_ms ?? 0).toFixed(0)}</span>
+                      <div className={`path-latency ${kind} ${latencyClass(p.latency_ms)}`}>
+                        {typeof p.latency_ms === 'number' && p.latency_ms > 0 ? (
+                          <>
+                            <strong>{p.latency_ms.toFixed(0)} ms</strong>
+                            <span>jitter +/-{(p.jitter_ms ?? 0).toFixed(0)}</span>
+                          </>
+                        ) : (
+                          <>
+                            <strong>--</strong>
+                            <span>measuring</span>
+                          </>
                         )}
-                        <span>{(p.packets ?? 0).toLocaleString()} up pkts / {(p.rx_packets ?? 0).toLocaleString()} down</span>
-                        {p.send_errors > 0 && <span className="path-errors">{p.send_errors.toLocaleString()} send errors</span>}
                       </div>
                     </div>
                   )
                 })}
               </div>
             </section>
-            <LatencyChart paths={status.paths} history={latencyHistory} />
           </>
         )}
 
         {isOn && (
           <section className="stats-grid">
             <div className="stat-card">
-              <div className="section-label">Session</div>
-              <div className="stat-pair">
-                <span>Up</span>
-                <strong>{formatMB(totalUp)}</strong>
-              </div>
+              <div className="section-label">Path traffic</div>
               <div className="stat-pair">
                 <span>Down</span>
                 <strong>{formatMB(totalDown)}</strong>
+              </div>
+              <div className="stat-pair">
+                <span>Packets</span>
+                <strong>{totalDownPackets.toLocaleString()}</strong>
               </div>
             </div>
 
