@@ -31,6 +31,10 @@ type Path struct {
 	packetsRecv atomic.Uint64
 	sendErrors  atomic.Uint64
 	lastSend    atomic.Int64 // unix nano
+	probeSent   atomic.Int64 // unix nano
+	latencyUs   atomic.Int64
+	jitterUs    atomic.Int64
+	metered     bool
 }
 
 // Config for the bonding client.
@@ -51,6 +55,11 @@ type Config struct {
 	// client. "primary" saves secondary/mobile data; "all" races replies over
 	// every registered path for gaming and Windows gateway testing.
 	ReplyMode string
+
+	// SendMode controls uplink fan-out from WireGuard to the physical paths.
+	// "primary" sends normal traffic on the first active path to preserve
+	// mobile data; "all" duplicates every packet for gaming.
+	SendMode string
 }
 
 // PathConfig defines a single network path.
@@ -61,6 +70,7 @@ type PathConfig struct {
 	ServerAddr   string // bonding server "host:port" for this path
 	Connected    bool   // use connected UDP instead of WriteToUDP
 	PrepareRoute func() func()
+	Metered      bool // counts against the mobile-data budget
 }
 
 // Client is the bonding client.
@@ -97,6 +107,8 @@ const udpBufferBytes = 4 * 1024 * 1024
 const (
 	ReplyModePrimary = "primary"
 	ReplyModeAll     = "all"
+	SendModePrimary  = "primary"
+	SendModeAll      = "all"
 )
 
 // New creates a new bonding client.
@@ -141,9 +153,14 @@ func (c *Client) Start() error {
 	}
 	c.sendReplyModeControl()
 
-	log.Printf("Bonding active: %d paths, local=:%d", len(c.paths), c.cfg.ListenPort)
+	if c.cfg.SendMode == "" {
+		c.cfg.SendMode = SendModeAll
+	}
+	log.Printf("Bonding active: %d paths, local=:%d send_mode=%s reply_mode=%s",
+		len(c.paths), c.cfg.ListenPort, c.cfg.SendMode, c.cfg.ReplyMode)
 
 	c.running.Store(true)
+	go c.probeLoop()
 
 	// Periodic per-path send counters so we can see whether both paths
 	// are actually writing packets, independent of what reaches the server.
@@ -178,6 +195,11 @@ func (c *Client) Start() error {
 					if n <= headerSize {
 						continue
 					}
+					seq := decodeSeq(buf[:n])
+					if seq == 0 && string(buf[headerSize:n]) == "probe" {
+						path.recordProbeReply(time.Now())
+						continue
+					}
 					path.packetsRecv.Add(1)
 					path.bytesRecv.Add(uint64(n))
 					// Strip the 4-byte seq header the server now prepends
@@ -207,8 +229,7 @@ func (c *Client) Start() error {
 		c.TotalPackets.Add(1)
 		c.TotalBytes.Add(uint64(n))
 
-		// Send through ALL paths simultaneously
-		for _, path := range c.paths {
+		for _, path := range c.sendTargets() {
 			if !path.active.Load() {
 				continue
 			}
@@ -222,8 +243,8 @@ func (c *Client) Start() error {
 			path.bytesSent.Add(uint64(len(encoded)))
 			path.lastSend.Store(time.Now().UnixNano())
 
-			// Track 4G data usage
-			if path.Name != "Starlink" {
+			// Track metered uplink usage for mobile-data budgeting.
+			if path.metered {
 				c.DataUsed4G.Add(uint64(len(encoded)))
 			}
 		}
@@ -238,6 +259,36 @@ func (c *Client) Start() error {
 	}
 
 	return nil
+}
+
+func (c *Client) sendTargets() []*Path {
+	if c.cfg.SendMode != SendModePrimary {
+		return c.paths
+	}
+	for _, path := range c.paths {
+		if path.active.Load() {
+			return []*Path{path}
+		}
+	}
+	return nil
+}
+
+func (c *Client) probeLoop() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for c.running.Load() {
+		for _, path := range c.paths {
+			if !path.active.Load() {
+				continue
+			}
+			path.probeSent.Store(time.Now().UnixNano())
+			if err := writePath(path, encode(0, []byte("probe"))); err != nil {
+				path.sendErrors.Add(1)
+			}
+		}
+		<-ticker.C
+	}
 }
 
 // Stop gracefully stops bonding.
@@ -266,6 +317,8 @@ func (c *Client) Stats() []PathStats {
 			RxPackets:  p.packetsRecv.Load(),
 			RxBytes:    p.bytesRecv.Load(),
 			SendErrors: p.sendErrors.Load(),
+			LatencyMS:  float64(p.latencyUs.Load()) / 1000,
+			JitterMS:   float64(p.jitterUs.Load()) / 1000,
 		})
 	}
 	return stats
@@ -280,6 +333,8 @@ type PathStats struct {
 	RxPackets  uint64
 	RxBytes    uint64
 	SendErrors uint64
+	LatencyMS  float64
+	JitterMS   float64
 }
 
 // GetDataLimitMB returns the configured 4G data limit in megabytes.
@@ -331,6 +386,7 @@ func (c *Client) createPath(pc PathConfig) (*Path, error) {
 		conn:       conn,
 		serverAddr: serverAddr,
 		connected:  pc.Connected,
+		metered:    pc.Metered,
 	}
 	p.active.Store(true)
 	return p, nil
@@ -351,6 +407,30 @@ func readPath(path *Path, buf []byte) (int, error) {
 	}
 	n, _, err := path.conn.ReadFromUDP(buf)
 	return n, err
+}
+
+func (p *Path) recordProbeReply(now time.Time) {
+	sent := p.probeSent.Load()
+	if sent == 0 {
+		return
+	}
+	rttUs := now.Sub(time.Unix(0, sent)).Microseconds()
+	if rttUs <= 0 {
+		return
+	}
+	prev := p.latencyUs.Swap(rttUs)
+	if prev > 0 {
+		diff := rttUs - prev
+		if diff < 0 {
+			diff = -diff
+		}
+		oldJitter := p.jitterUs.Load()
+		if oldJitter == 0 {
+			p.jitterUs.Store(diff)
+		} else {
+			p.jitterUs.Store((oldJitter*3 + diff) / 4)
+		}
+	}
 }
 
 func tuneUDPBuffers(conn *net.UDPConn, label string) {
@@ -380,4 +460,11 @@ func encode(seq uint32, payload []byte) []byte {
 	buf[3] = byte(seq)
 	copy(buf[headerSize:], payload)
 	return buf
+}
+
+func decodeSeq(packet []byte) uint32 {
+	if len(packet) < headerSize {
+		return 0
+	}
+	return uint32(packet[0])<<24 | uint32(packet[1])<<16 | uint32(packet[2])<<8 | uint32(packet[3])
 }

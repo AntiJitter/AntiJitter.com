@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,14 +24,21 @@ import (
 
 const bondListenPort = 51821
 
+const (
+	ModeNormal = "normal"
+	ModeGaming = "gaming"
+)
+
 // Status is sent to the frontend on every tick.
 type Status struct {
-	Active      bool       `json:"active"`
-	Paths       []PathStat `json:"paths"`
-	DataUsedMB  float64    `json:"data_used_mb"`
-	DataLimitMB int64      `json:"data_limit_mb"`
-	Connecting  bool       `json:"connecting"`
-	DevRouteAll bool       `json:"dev_route_all"`
+	Active      bool           `json:"active"`
+	Paths       []PathStat     `json:"paths"`
+	DataUsedMB  float64        `json:"data_used_mb"`
+	DataLimitMB int64          `json:"data_limit_mb"`
+	Connecting  bool           `json:"connecting"`
+	DevRouteAll bool           `json:"dev_route_all"`
+	Mode        string         `json:"mode"`
+	Starlink    StarlinkStatus `json:"starlink"`
 }
 
 type PathStat struct {
@@ -41,6 +49,14 @@ type PathStat struct {
 	Packets    uint64  `json:"packets"`
 	RxPackets  uint64  `json:"rx_packets"`
 	SendErrors uint64  `json:"send_errors"`
+	LatencyMS  float64 `json:"latency_ms"`
+	JitterMS   float64 `json:"jitter_ms"`
+}
+
+type StarlinkStatus struct {
+	Detected  bool    `json:"detected"`
+	LatencyMS float64 `json:"latency_ms"`
+	CheckedAt int64   `json:"checked_at"`
 }
 
 // App is the Wails backend — all exported methods are callable from the frontend.
@@ -55,13 +71,15 @@ type App struct {
 	restoreHostRouteMetrics func()
 	token                   string
 	devRouteAll             bool
+	mode                    string
+	starlink                StarlinkStatus
 	cancelStats             context.CancelFunc
 
 	toggleMu sync.Mutex // prevents double-toggle
 }
 
 func NewApp() *App {
-	return &App{devRouteAll: true}
+	return &App{devRouteAll: true, mode: ModeNormal}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -71,6 +89,7 @@ func (a *App) startup(ctx context.Context) {
 	a.mu.Lock()
 	a.token = token
 	a.mu.Unlock()
+	go a.monitorStarlink(ctx)
 }
 
 // setupFileLogging redirects log output to %APPDATA%\AntiJitter\antijitter.log
@@ -157,7 +176,7 @@ func (a *App) Logout() {
 	a.saveToken("")
 }
 
-// Toggle starts or stops Game Mode. Called from the UI button.
+// Toggle starts or stops the AntiJitter tunnel. Called from the UI button.
 func (a *App) Toggle() error {
 	if !a.toggleMu.TryLock() {
 		return fmt.Errorf("already changing state — please wait")
@@ -183,21 +202,42 @@ func (a *App) GetStatus() Status {
 }
 
 // SetDevRouteAll controls the local Windows route-all proof path. It is a
-// temporary client-side override and only affects the next Game Mode start.
+// temporary client-side override and only affects the next tunnel start.
 func (a *App) SetDevRouteAll(enabled bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.active {
-		return fmt.Errorf("stop Game Mode before changing DEV route-all")
+		return fmt.Errorf("stop AntiJitter before changing DEV route-all")
 	}
 	a.devRouteAll = enabled
 	log.Printf("DEV route-all set to %v", enabled)
 	return nil
 }
 
+// SetMode selects the Windows bonding strategy for the next tunnel start.
+func (a *App) SetMode(mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != ModeNormal && mode != ModeGaming {
+		return fmt.Errorf("unknown mode %q", mode)
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.active {
+		return fmt.Errorf("stop AntiJitter before changing mode")
+	}
+	a.mode = mode
+	log.Printf("Windows mode set to %s", mode)
+	return nil
+}
+
 // buildStatus reads current state; caller must hold at least RLock.
 func (a *App) buildStatus() Status {
-	s := Status{Active: a.active, DevRouteAll: a.devRouteAll}
+	mode := a.mode
+	if mode == "" {
+		mode = ModeNormal
+	}
+	s := Status{Active: a.active, DevRouteAll: a.devRouteAll, Mode: mode, Starlink: a.starlink}
 	if a.bondClient != nil {
 		for _, p := range a.bondClient.Stats() {
 			s.Paths = append(s.Paths, PathStat{
@@ -208,6 +248,8 @@ func (a *App) buildStatus() Status {
 				Packets:    p.Packets,
 				RxPackets:  p.RxPackets,
 				SendErrors: p.SendErrors,
+				LatencyMS:  p.LatencyMS,
+				JitterMS:   p.JitterMS,
 			})
 		}
 		s.DataUsedMB = float64(a.bondClient.DataUsed4G.Load()) / (1024 * 1024)
@@ -220,7 +262,11 @@ func (a *App) startGameMode() error {
 	a.mu.RLock()
 	token := a.token
 	devRouteAll := a.devRouteAll
+	mode := a.mode
 	a.mu.RUnlock()
+	if mode == "" {
+		mode = ModeNormal
+	}
 
 	if token == "" {
 		return fmt.Errorf("not logged in")
@@ -237,6 +283,7 @@ func (a *App) startGameMode() error {
 	}
 	log.Printf("Config: bonding_servers=%v api_allowed_ips=%v data_limit_mb=%d",
 		cfg.BondingServers, cfg.WireGuard.AllowedIPs, cfg.DataLimitMB)
+	log.Printf("Windows mode: %s", mode)
 
 	if devRouteAll {
 		cfg.WireGuard.AllowedIPs = []string{"0.0.0.0/0"}
@@ -286,6 +333,7 @@ func (a *App) startGameMode() error {
 			IfIndex:    r.Interface.Index,
 			ServerAddr: r.ServerAddr,
 			Connected:  r.Connected || len(hostRoutes) > 0,
+			Metered:    i > 0,
 		}
 		log.Printf("Bonding path %d socket mode: connected=%v", i+1, bondPaths[i].Connected)
 		log.Printf("Bonding path %d: %s (%s) ifindex=%d → %s",
@@ -295,11 +343,18 @@ func (a *App) startGameMode() error {
 	log.Printf("Selected %d reachable bonding path(s)", len(bondPaths))
 
 	// Start bonding client
+	replyMode := bonding.ReplyModePrimary
+	sendMode := bonding.SendModePrimary
+	if mode == ModeGaming {
+		replyMode = bonding.ReplyModeAll
+		sendMode = bonding.SendModeAll
+	}
 	bondClient, err := bonding.New(bonding.Config{
 		ListenPort:  bondListenPort,
 		Paths:       bondPaths,
 		DataLimitMB: cfg.DataLimitMB,
-		ReplyMode:   bonding.ReplyModeAll,
+		ReplyMode:   replyMode,
+		SendMode:    sendMode,
 	})
 	if err != nil {
 		restoreHostRouteMetrics()
@@ -398,6 +453,42 @@ func (a *App) emitStats(ctx context.Context) {
 			a.mu.RUnlock()
 			runtime.EventsEmit(a.ctx, "status", s)
 		}
+	}
+}
+
+func (a *App) monitorStarlink(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		status := probeStarlinkDish()
+		a.mu.Lock()
+		a.starlink = status
+		a.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func probeStarlinkDish() StarlinkStatus {
+	const dishStatusAddr = "192.168.100.1:9200"
+
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", dishStatusAddr, 900*time.Millisecond)
+	checkedAt := time.Now().Unix()
+	if err != nil {
+		return StarlinkStatus{Detected: false, CheckedAt: checkedAt}
+	}
+	conn.Close()
+
+	return StarlinkStatus{
+		Detected:  true,
+		LatencyMS: float64(time.Since(start).Microseconds()) / 1000,
+		CheckedAt: checkedAt,
 	}
 }
 
