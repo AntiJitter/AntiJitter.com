@@ -43,6 +43,7 @@ function pathKind(path, index) {
 }
 
 function appendLatencyHistory(history, paths = []) {
+  if (!Array.isArray(paths)) return history
   const next = { ...history }
   paths.forEach((path, index) => {
     const key = `${path.name}-${index}`
@@ -122,12 +123,12 @@ export default function Dashboard({ onLogout }) {
   useEffect(() => {
     callGo('GetStatus').then(s => {
       if (!s) return
-      setStatus({ ...EMPTY_STATUS, ...s })
+      setStatus({ ...EMPTY_STATUS, ...s, paths: Array.isArray(s.paths) ? s.paths : [] })
       setLatencyHistory(h => appendLatencyHistory(h, s.paths))
     }).catch(() => {})
 
     onEvent('status', s => {
-      setStatus(prev => ({ ...prev, ...s }))
+      setStatus(prev => ({ ...prev, ...s, paths: Array.isArray(s.paths) ? s.paths : [] }))
       setLatencyHistory(h => appendLatencyHistory(h, s.paths))
     })
     onEvent('connecting', v => setConnecting(v))
