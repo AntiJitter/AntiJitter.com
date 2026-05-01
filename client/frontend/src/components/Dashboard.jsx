@@ -19,13 +19,13 @@ const EMPTY_STATUS = {
 const MODES = {
   normal: {
     label: 'Normal',
-    summary: 'Starlink first. Mobile data stays protected.',
+    summary: 'Starlink first. Mobile data ready for satellite handoff.',
     detail: 'Best for downloads, updates, browsing, and leaving AntiJitter on.'
   },
   gaming: {
     label: 'Gaming',
-    summary: 'Every packet races across active paths.',
-    detail: 'Best for live matches and voice chat. Uses more mobile data.'
+    summary: 'Every packet is sent over Starlink and Mobile data.',
+    detail: 'Best for gaming and real-time voice and video calls. Uses more Mobile data.'
   }
 }
 
@@ -204,15 +204,28 @@ export default function Dashboard({ onLogout }) {
   const totalUp = status.paths?.reduce((sum, p) => sum + (p.bytes_mb ?? 0), 0) ?? 0
   const totalDown = status.paths?.reduce((sum, p) => sum + (p.rx_bytes_mb ?? 0), 0) ?? 0
   const starlink = status.starlink ?? EMPTY_STATUS.starlink
+  const latencyValues = (status.paths ?? [])
+    .map(p => p.latency_ms)
+    .filter(v => typeof v === 'number' && v > 0)
+  const bestLatency = latencyValues.length > 0 ? Math.min(...latencyValues) : null
+  const statusLabel = connecting ? 'Connecting' : isOn ? 'Connected' : 'Idle'
 
   return (
     <div className="dashboard">
       <header className="dash-header">
-        <div className="dash-logo">
-          <span className="dash-logo-icon">AJ</span>
-          <span className="dash-logo-text">AntiJitter</span>
+        <div className="brand-lockup">
+          <div className="brand-title">
+            <span>Anti</span><span>Jitter</span>
+          </div>
+          <div className="brand-subtitle">Windows gateway</div>
         </div>
-        <button className="btn-logout" onClick={logout}>Logout</button>
+        <div className="header-actions">
+          <div className={`connection-pill ${isOn ? 'connected' : ''} ${connecting ? 'connecting' : ''}`}>
+            <span />
+            {statusLabel}
+          </div>
+          <button className="btn-logout" onClick={logout}>Sign out</button>
+        </div>
       </header>
 
       <main className="dashboard-scroll">
@@ -227,13 +240,12 @@ export default function Dashboard({ onLogout }) {
             <div className={`status-dot ${isOn ? 'on' : ''} ${isBusy ? 'busy' : ''}`} />
           </div>
 
-          <div className="blend-row" aria-hidden="true">
-            <span className="blend-chip starlink">Starlink</span>
-            <span className="blend-plus">+</span>
-            <span className="blend-chip mobile">Mobile data</span>
-            <span className="blend-equals">=</span>
-            <span className="blend-chip bonded">Bonded</span>
-          </div>
+          {isOn && (
+            <div className="hero-latency">
+              <span>{mode === 'gaming' ? 'Bonded latency' : 'Best path latency'}</span>
+              <strong>{bestLatency === null ? '--' : bestLatency.toFixed(0)}<em>ms</em></strong>
+            </div>
+          )}
 
           <button
             className={`btn-toggle ${isOn ? 'active' : ''}`}
@@ -248,6 +260,10 @@ export default function Dashboard({ onLogout }) {
           <div className="connection-sub">
             {isOn ? `${pathCount} path${pathCount !== 1 ? 's' : ''} bonded in ${modeInfo.label} mode` : modeInfo.summary}
           </div>
+
+          {isOn && status.paths?.length > 0 && (
+            <LatencyChart paths={status.paths} history={latencyHistory} />
+          )}
         </section>
 
         <section className="mode-card">
@@ -277,33 +293,43 @@ export default function Dashboard({ onLogout }) {
                 <span className="section-label">Active paths</span>
                 <span className="section-meta">{pathCount} online</span>
               </div>
-              <div className="paths-grid">
+              <div className="paths-list">
                 {status.paths.map((p, index) => {
                   const kind = pathKind(p, index)
                   return (
                     <div key={`${p.name}-${index}`} className={`path-card ${kind} ${p.active ? 'active' : 'inactive'}`}>
-                      <div className="path-top">
-                        <div className={`path-dot ${p.active ? 'on' : 'off'}`} />
-                        <div>
-                          <span className="path-name">{p.name}</span>
-                          <span className="path-kind">{kind === 'starlink' ? 'Starlink' : 'Mobile data'}</span>
+                      <div className="path-main">
+                        <div className="path-top">
+                          <div className={`path-dot ${p.active ? 'on' : 'off'}`} />
+                          <div>
+                            <span className="path-name">{p.name}</span>
+                            <span className="path-kind">{kind === 'starlink' ? 'Starlink' : 'Mobile data'}</span>
+                          </div>
+                        </div>
+                        <div className="path-metrics">
+                          <span>{formatMB(p.bytes_mb)} up - {formatMB(p.rx_bytes_mb)} down</span>
+                          <span>{(p.packets ?? 0).toLocaleString()} up pkts / {(p.rx_packets ?? 0).toLocaleString()} down</span>
+                          {p.send_errors > 0 && <span className="path-errors">{p.send_errors.toLocaleString()} send errors</span>}
                         </div>
                       </div>
-                      <div className="path-metrics">
-                        <span>{formatMB(p.bytes_mb)} up</span>
-                        <span>{formatMB(p.rx_bytes_mb)} down</span>
-                        {typeof p.latency_ms === 'number' && p.latency_ms > 0 && (
-                          <span>{p.latency_ms.toFixed(0)} ms +/-{(p.jitter_ms ?? 0).toFixed(0)}</span>
+                      <div className={`path-latency ${kind}`}>
+                        {typeof p.latency_ms === 'number' && p.latency_ms > 0 ? (
+                          <>
+                            <strong>{p.latency_ms.toFixed(0)} ms</strong>
+                            <span>jitter +/-{(p.jitter_ms ?? 0).toFixed(0)}</span>
+                          </>
+                        ) : (
+                          <>
+                            <strong>--</strong>
+                            <span>measuring</span>
+                          </>
                         )}
-                        <span>{(p.packets ?? 0).toLocaleString()} up pkts / {(p.rx_packets ?? 0).toLocaleString()} down</span>
-                        {p.send_errors > 0 && <span className="path-errors">{p.send_errors.toLocaleString()} send errors</span>}
                       </div>
                     </div>
                   )
                 })}
               </div>
             </section>
-            <LatencyChart paths={status.paths} history={latencyHistory} />
           </>
         )}
 
