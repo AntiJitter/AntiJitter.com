@@ -19,21 +19,38 @@ export function offEvent(event) {
 
 export default function App() {
   const [screen, setScreen] = useState('loading') // 'loading' | 'login' | 'dashboard'
+  const [startupError, setStartupError] = useState('')
 
   useEffect(() => {
     // Give Wails runtime a moment to inject window.go
+    let attempts = 0
+    let cancelled = false
     const check = () => {
+      attempts += 1
       callGo('IsLoggedIn')
-        .then(loggedIn => setScreen(loggedIn ? 'dashboard' : 'login'))
-        .catch(() => setTimeout(check, 100))
+        .then(loggedIn => {
+          if (!cancelled) setScreen(loggedIn ? 'dashboard' : 'login')
+        })
+        .catch(() => {
+          if (cancelled) return
+          if (attempts > 50) {
+            setStartupError('AntiJitter runtime did not start. Close the app and run antijitter.exe again as Administrator.')
+            return
+          }
+          setTimeout(check, 100)
+        })
     }
     check()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   if (screen === 'loading') {
     return (
-      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="app-loading">
         <div className="spinner" />
+        {startupError && <div className="startup-error">{startupError}</div>}
       </div>
     )
   }
