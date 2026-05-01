@@ -206,8 +206,8 @@ export default function Dashboard({ onLogout }) {
   const dataPct = dataLimit > 0 ? Math.min(100, (dataUsed / dataLimit) * 100) : 0
   const dataBarColor = dataPct > 90 ? 'var(--orange)' : 'var(--mobile)'
   const devRouteAll = status.dev_route_all ?? true
-  const totalUp = status.paths?.reduce((sum, p) => sum + (p.bytes_mb ?? 0), 0) ?? 0
   const totalDown = status.paths?.reduce((sum, p) => sum + (p.rx_bytes_mb ?? 0), 0) ?? 0
+  const totalDownPackets = status.paths?.reduce((sum, p) => sum + (p.rx_packets ?? 0), 0) ?? 0
   const starlink = status.starlink ?? EMPTY_STATUS.starlink
   const latencyValues = (status.paths ?? [])
     .map(p => p.latency_ms)
@@ -310,8 +310,8 @@ export default function Dashboard({ onLogout }) {
                           </div>
                         </div>
                         <div className="path-metrics">
-                          <span>{formatMB(p.bytes_mb)} up - {formatMB(p.rx_bytes_mb)} down</span>
-                          <span>{(p.packets ?? 0).toLocaleString()} up pkts / {(p.rx_packets ?? 0).toLocaleString()} down</span>
+                          <span>{formatMB(p.rx_bytes_mb)} down</span>
+                          <span>{(p.rx_packets ?? 0).toLocaleString()} packets</span>
                           {p.send_errors > 0 && <span className="path-errors">{p.send_errors.toLocaleString()} send errors</span>}
                         </div>
                       </div>
@@ -341,12 +341,12 @@ export default function Dashboard({ onLogout }) {
             <div className="stat-card">
               <div className="section-label">Path traffic</div>
               <div className="stat-pair">
-                <span>Up</span>
-                <strong>{formatMB(totalUp)}</strong>
-              </div>
-              <div className="stat-pair">
                 <span>Down</span>
                 <strong>{formatMB(totalDown)}</strong>
+              </div>
+              <div className="stat-pair">
+                <span>Packets</span>
+                <strong>{totalDownPackets.toLocaleString()}</strong>
               </div>
             </div>
 

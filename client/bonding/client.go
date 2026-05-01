@@ -114,7 +114,6 @@ const (
 
 const (
 	normalPrimaryStall = 900 * time.Millisecond
-	normalMobileSample = 32
 )
 
 // New creates a new bonding client.
@@ -303,8 +302,7 @@ func (c *Client) sendTargets() []*Path {
 		return []*Path{primary}
 	}
 
-	shouldSampleMobile := c.TotalPackets.Load()%normalMobileSample == 0
-	if primary.isStalled(time.Now()) || shouldSampleMobile {
+	if primary.isStalled(time.Now()) {
 		targets := make([]*Path, 0, 1+len(mobile))
 		targets = append(targets, primary)
 		targets = append(targets, mobile...)
