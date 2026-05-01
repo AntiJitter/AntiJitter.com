@@ -7,24 +7,138 @@ const EMPTY_STATUS = {
   paths: [],
   data_used_mb: 0,
   data_limit_mb: 50000,
-  dev_route_all: true
+  dev_route_all: true,
+  mode: 'normal',
+  starlink: {
+    detected: false,
+    latency_ms: 0,
+    checked_at: 0
+  }
+}
+
+const MODES = {
+  normal: {
+    label: 'Normal',
+    summary: 'Starlink first. Mobile data stays protected.',
+    detail: 'Best for downloads, updates, browsing, and leaving AntiJitter on.'
+  },
+  gaming: {
+    label: 'Gaming',
+    summary: 'Every packet races across active paths.',
+    detail: 'Best for live matches and voice chat. Uses more mobile data.'
+  }
+}
+
+function formatMB(value = 0) {
+  if (value < 1) return `${(value * 1024).toFixed(0)} KB`
+  if (value >= 1024) return `${(value / 1024).toFixed(2)} GB`
+  return `${value.toFixed(1)} MB`
+}
+
+function pathKind(path, index) {
+  const name = (path?.name ?? '').toLowerCase()
+  if (name.includes('starlink') || name.includes('ethernet')) return 'starlink'
+  if (name.includes('mobile') || name.includes('4g') || name.includes('5g') || name.includes('wi-fi 2')) return 'mobile'
+  return index === 0 ? 'starlink' : 'mobile'
+}
+
+function appendLatencyHistory(history, paths = []) {
+  const next = { ...history }
+  paths.forEach((path, index) => {
+    const key = `${path.name}-${index}`
+    const value = typeof path.latency_ms === 'number' && path.latency_ms > 0 ? path.latency_ms : null
+    next[key] = [...(next[key] ?? []), value].slice(-42)
+  })
+  return next
+}
+
+function LatencyChart({ paths, history }) {
+  const series = (paths ?? []).map((path, index) => ({
+    key: `${path.name}-${index}`,
+    name: path.name,
+    kind: pathKind(path, index),
+    latency: path.latency_ms,
+    jitter: path.jitter_ms,
+    values: history[`${path.name}-${index}`] ?? []
+  })).filter(item => item.values.some(v => typeof v === 'number'))
+
+  const allValues = series.flatMap(item => item.values).filter(v => typeof v === 'number')
+  const max = Math.max(80, Math.min(240, Math.ceil((Math.max(...allValues, 0) + 20) / 20) * 20))
+  const width = 320
+  const height = 96
+  const pad = 10
+
+  const pointsFor = (values) => {
+    if (values.length < 2) return ''
+    return values.map((value, index) => {
+      const x = pad + (index / Math.max(1, values.length - 1)) * (width - pad * 2)
+      const yValue = typeof value === 'number' ? value : max
+      const y = height - pad - (Math.min(max, yValue) / max) * (height - pad * 2)
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    }).join(' ')
+  }
+
+  return (
+    <section className="latency-card">
+      <div className="section-label-row">
+        <span className="section-label">Latency trend</span>
+        <span className="section-meta">{series.length > 0 ? `${max} ms scale` : 'Collecting'}</span>
+      </div>
+      <svg className="latency-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Per-path latency trend">
+        <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} />
+        <line x1={pad} y1={pad} x2={pad} y2={height - pad} />
+        {max >= 200 && (
+          <line className="latency-threshold" x1={pad} y1={height - pad - (200 / max) * (height - pad * 2)} x2={width - pad} y2={height - pad - (200 / max) * (height - pad * 2)} />
+        )}
+        {series.map(item => (
+          <polyline
+            key={item.key}
+            className={`latency-line ${item.kind}`}
+            points={pointsFor(item.values)}
+          />
+        ))}
+      </svg>
+      <div className="latency-legend">
+        {series.length === 0 && <span>Waiting for path probes</span>}
+        {series.map(item => (
+          <span key={item.key} className={`legend-item ${item.kind}`}>
+            {item.kind === 'starlink' ? 'Starlink' : 'Mobile data'}
+            {typeof item.latency === 'number' && item.latency > 0 ? ` ${item.latency.toFixed(0)} ms` : ''}
+            {typeof item.jitter === 'number' && item.jitter > 0 ? ` +/-${item.jitter.toFixed(0)}` : ''}
+          </span>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 export default function Dashboard({ onLogout }) {
   const [status, setStatus] = useState(EMPTY_STATUS)
+  const [latencyHistory, setLatencyHistory] = useState({})
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState('')
   const [toggling, setToggling] = useState(false)
 
-  // Load initial state and subscribe to live updates
   useEffect(() => {
-    callGo('GetStatus').then(s => s && setStatus(s)).catch(() => {})
+    callGo('GetStatus').then(s => {
+      if (!s) return
+      setStatus({ ...EMPTY_STATUS, ...s })
+      setLatencyHistory(h => appendLatencyHistory(h, s.paths))
+    }).catch(() => {})
 
-    onEvent('status', s => setStatus(s))
+    onEvent('status', s => {
+      setStatus(prev => ({ ...prev, ...s }))
+      setLatencyHistory(h => appendLatencyHistory(h, s.paths))
+    })
     onEvent('connecting', v => setConnecting(v))
     onEvent('state-changed', active => {
       if (!active) {
-        setStatus(s => ({ ...EMPTY_STATUS, dev_route_all: s.dev_route_all ?? true }))
+        setStatus(s => ({
+          ...EMPTY_STATUS,
+          dev_route_all: s.dev_route_all ?? true,
+          mode: s.mode ?? 'normal'
+        }))
+        setLatencyHistory({})
       }
     })
 
@@ -41,7 +155,7 @@ export default function Dashboard({ onLogout }) {
     try {
       await callGo('Toggle')
     } catch (err) {
-      setError(typeof err === 'string' ? err : 'Failed to toggle Game Mode')
+      setError(typeof err === 'string' ? err : 'Failed to change connection state')
     } finally {
       setToggling(false)
     }
@@ -63,19 +177,35 @@ export default function Dashboard({ onLogout }) {
     }
   }, [])
 
+  const setMode = useCallback(async (mode) => {
+    if (status.active || connecting || toggling) return
+    const previousMode = status.mode ?? 'normal'
+    setError('')
+    setStatus(s => ({ ...s, mode }))
+    try {
+      await callGo('SetMode', mode)
+    } catch (err) {
+      setStatus(s => ({ ...s, mode: previousMode }))
+      setError(typeof err === 'string' ? err : 'Failed to change mode')
+    }
+  }, [status.active, status.mode, connecting, toggling])
+
   const isOn = status.active
   const isBusy = toggling || connecting
+  const mode = status.mode ?? 'normal'
+  const modeInfo = MODES[mode] ?? MODES.normal
   const pathCount = status.paths?.length ?? 0
   const dataUsed = status.data_used_mb ?? 0
   const dataLimit = status.data_limit_mb ?? 50000
   const dataPct = dataLimit > 0 ? Math.min(100, (dataUsed / dataLimit) * 100) : 0
-  const dataBarColor = dataPct > 90 ? 'var(--orange)' : 'var(--teal)'
+  const dataBarColor = dataPct > 90 ? 'var(--orange)' : 'var(--mobile)'
   const devRouteAll = status.dev_route_all ?? true
+  const totalUp = status.paths?.reduce((sum, p) => sum + (p.bytes_mb ?? 0), 0) ?? 0
+  const totalDown = status.paths?.reduce((sum, p) => sum + (p.rx_bytes_mb ?? 0), 0) ?? 0
+  const starlink = status.starlink ?? EMPTY_STATUS.starlink
 
   return (
     <div className="dashboard">
-
-      {/* Header */}
       <header className="dash-header">
         <div className="dash-logo">
           <span className="dash-logo-icon">AJ</span>
@@ -84,125 +214,154 @@ export default function Dashboard({ onLogout }) {
         <button className="btn-logout" onClick={logout}>Logout</button>
       </header>
 
-      {/* Game Mode card */}
-      <section className="gamemode-card">
-        <div className="gamemode-indicator">
-          <div className={`status-dot ${isOn ? 'on' : ''} ${isBusy ? 'busy' : ''}`} />
-          <div className="gamemode-labels">
-            <span className="gamemode-label">GAME MODE</span>
-            <span className={`gamemode-state ${isOn ? 'on' : ''}`}>
-              {connecting ? 'CONNECTING...' : isOn ? 'ACTIVE' : 'OFF'}
-            </span>
-          </div>
-        </div>
-
-        <button
-          className={`btn-toggle ${isOn ? 'active' : ''}`}
-          onClick={toggle}
-          disabled={isBusy}
-        >
-          {isBusy ? (
-            <span className="btn-spinner" />
-          ) : isOn ? (
-            'DEACTIVATE'
-          ) : (
-            'ACTIVATE'
-          )}
-        </button>
-
-        {error && <div className="gamemode-error">{error}</div>}
-
-        {isOn && pathCount > 0 && (
-          <div className="gamemode-sub">
-            {pathCount} path{pathCount !== 1 ? 's' : ''} bonded
-          </div>
-        )}
-      </section>
-
-      {/* Connections */}
-      {(isOn && status.paths?.length > 0) && (
-        <section className="section">
-          <div className="section-label">CONNECTIONS</div>
-          <div className="paths-grid">
-            {status.paths.map(p => (
-              <div key={p.name} className={`path-card ${p.active ? 'active' : 'inactive'}`}>
-                <div className="path-top">
-                  <div className={`path-dot ${p.active ? 'on' : 'off'}`} />
-                  <span className="path-name">{p.name}</span>
-                </div>
-                <div className="path-bytes">
-                  {p.bytes_mb < 1
-                    ? `${(p.bytes_mb * 1024).toFixed(0)} KB`
-                    : `${p.bytes_mb.toFixed(1)} MB`
-                  } up
-                  {typeof p.rx_bytes_mb === 'number' && (
-                    <span className="path-packets">
-                      {p.rx_bytes_mb < 1
-                        ? `${(p.rx_bytes_mb * 1024).toFixed(0)} KB`
-                        : `${p.rx_bytes_mb.toFixed(1)} MB`
-                      } down
-                    </span>
-                  )}
-                  {typeof p.packets === 'number' && (
-                    <span className="path-packets">
-                      {p.packets.toLocaleString()} up pkts
-                      {typeof p.rx_packets === 'number' ? ` / ${p.rx_packets.toLocaleString()} down` : ''}
-                    </span>
-                  )}
-                  {p.send_errors > 0 && (
-                    <span className="path-packets path-errors">{p.send_errors.toLocaleString()} send errors</span>
-                  )}
-                </div>
+      <main className="dashboard-scroll">
+        <section className={`connection-card ${isOn ? 'active' : ''}`}>
+          <div className="connection-top">
+            <div>
+              <div className="eyebrow">Connection</div>
+              <div className="connection-title">
+                {connecting ? 'Connecting' : isOn ? 'AntiJitter Active' : 'AntiJitter Off'}
               </div>
+            </div>
+            <div className={`status-dot ${isOn ? 'on' : ''} ${isBusy ? 'busy' : ''}`} />
+          </div>
+
+          <div className="blend-row" aria-hidden="true">
+            <span className="blend-chip starlink">Starlink</span>
+            <span className="blend-plus">+</span>
+            <span className="blend-chip mobile">Mobile data</span>
+            <span className="blend-equals">=</span>
+            <span className="blend-chip bonded">Bonded</span>
+          </div>
+
+          <button
+            className={`btn-toggle ${isOn ? 'active' : ''}`}
+            onClick={toggle}
+            disabled={isBusy}
+          >
+            {isBusy ? <span className="btn-spinner" /> : isOn ? 'Disconnect' : 'Connect'}
+          </button>
+
+          {error && <div className="panel-error">{error}</div>}
+
+          <div className="connection-sub">
+            {isOn ? `${pathCount} path${pathCount !== 1 ? 's' : ''} bonded in ${modeInfo.label} mode` : modeInfo.summary}
+          </div>
+        </section>
+
+        <section className="mode-card">
+          <div className="section-label">Mode</div>
+          <div className={`mode-toggle ${isOn || isBusy ? 'locked' : ''}`}>
+            {Object.entries(MODES).map(([key, item]) => (
+              <button
+                key={key}
+                className={`mode-option ${mode === key ? 'selected' : ''}`}
+                onClick={() => setMode(key)}
+                disabled={isOn || isBusy}
+              >
+                {item.label}
+              </button>
             ))}
           </div>
-        </section>
-      )}
-
-      {/* 4G Data protection */}
-      {isOn && (
-        <section className="section">
-          <div className="section-label-row">
-            <span className="section-label">4G DATA PROTECTION</span>
-            <span className="data-numbers">
-              {dataUsed.toFixed(1)} / {(dataLimit / 1024).toFixed(0)} GB
-            </span>
+          <div className="mode-copy">
+            <strong>{modeInfo.summary}</strong>
+            <span>{modeInfo.detail}</span>
           </div>
-          <div className="data-bar-bg">
-            <div
-              className="data-bar-fill"
-              style={{ width: `${dataPct}%`, background: dataBarColor }}
+        </section>
+
+        {(isOn && status.paths?.length > 0) && (
+          <>
+            <section className="section">
+              <div className="section-label-row">
+                <span className="section-label">Active paths</span>
+                <span className="section-meta">{pathCount} online</span>
+              </div>
+              <div className="paths-grid">
+                {status.paths.map((p, index) => {
+                  const kind = pathKind(p, index)
+                  return (
+                    <div key={`${p.name}-${index}`} className={`path-card ${kind} ${p.active ? 'active' : 'inactive'}`}>
+                      <div className="path-top">
+                        <div className={`path-dot ${p.active ? 'on' : 'off'}`} />
+                        <div>
+                          <span className="path-name">{p.name}</span>
+                          <span className="path-kind">{kind === 'starlink' ? 'Starlink' : 'Mobile data'}</span>
+                        </div>
+                      </div>
+                      <div className="path-metrics">
+                        <span>{formatMB(p.bytes_mb)} up</span>
+                        <span>{formatMB(p.rx_bytes_mb)} down</span>
+                        {typeof p.latency_ms === 'number' && p.latency_ms > 0 && (
+                          <span>{p.latency_ms.toFixed(0)} ms +/-{(p.jitter_ms ?? 0).toFixed(0)}</span>
+                        )}
+                        <span>{(p.packets ?? 0).toLocaleString()} up pkts / {(p.rx_packets ?? 0).toLocaleString()} down</span>
+                        {p.send_errors > 0 && <span className="path-errors">{p.send_errors.toLocaleString()} send errors</span>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+            <LatencyChart paths={status.paths} history={latencyHistory} />
+          </>
+        )}
+
+        {isOn && (
+          <section className="stats-grid">
+            <div className="stat-card">
+              <div className="section-label">Session</div>
+              <div className="stat-pair">
+                <span>Up</span>
+                <strong>{formatMB(totalUp)}</strong>
+              </div>
+              <div className="stat-pair">
+                <span>Down</span>
+                <strong>{formatMB(totalDown)}</strong>
+              </div>
+            </div>
+
+            <div className="stat-card mobile-data">
+              <div className="section-label">Mobile data</div>
+              <div className="data-head">
+                <strong>{formatMB(dataUsed)}</strong>
+                <span>{(dataLimit / 1024).toFixed(0)} GB cap</span>
+              </div>
+              <div className="data-bar-bg">
+                <div
+                  className="data-bar-fill"
+                  style={{ width: `${dataPct}%`, background: dataBarColor }}
+                />
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="starlink-card">
+          <div>
+            <div className="section-label">Starlink</div>
+            <div className="starlink-title">Dish statistics</div>
+          </div>
+          <div className={`starlink-state ${starlink.detected ? 'online' : ''}`}>
+            {starlink.detected ? `${(starlink.latency_ms ?? 0).toFixed(0)} ms dish` : 'Not reachable'}
+          </div>
+        </section>
+
+        <section className="dev-route-row">
+          <div>
+            <div className="dev-route-title">DEV: route all traffic</div>
+            <div className="dev-route-copy">PC and shared devices use AntiJitter while connected.</div>
+          </div>
+          <label className={`switch ${devRouteAll ? 'on' : ''} ${isBusy || isOn ? 'disabled' : ''}`}>
+            <input
+              type="checkbox"
+              checked={devRouteAll}
+              disabled={isBusy || isOn}
+              onChange={e => setRouteAll(e.target.checked)}
             />
-          </div>
-          {dataPct > 90 && (
-            <div className="data-warn">Approaching 4G data limit</div>
-          )}
+            <span />
+          </label>
         </section>
-      )}
-
-      <section className="dev-route-row">
-        <div>
-          <div className="dev-route-title">DEV: route all traffic</div>
-          <div className="dev-route-copy">PC traffic uses the bonded route while Game Mode starts.</div>
-        </div>
-        <label className={`switch ${devRouteAll ? 'on' : ''} ${isBusy || isOn ? 'disabled' : ''}`}>
-          <input
-            type="checkbox"
-            checked={devRouteAll}
-            disabled={isBusy || isOn}
-            onChange={e => setRouteAll(e.target.checked)}
-          />
-          <span />
-        </label>
-      </section>
-
-      {/* Footer */}
-      <footer className="dash-footer">
-        {isOn
-          ? 'Traffic bonded across all connections'
-          : 'Activate Game Mode to start bonding'}
-      </footer>
-
+      </main>
     </div>
   )
 }
