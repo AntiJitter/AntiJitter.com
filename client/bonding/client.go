@@ -31,6 +31,7 @@ type Path struct {
 	packetsRecv atomic.Uint64
 	sendErrors  atomic.Uint64
 	lastSend    atomic.Int64 // unix nano
+	lastRecv    atomic.Int64 // unix nano
 	probeSent   atomic.Int64 // unix nano
 	latencyUs   atomic.Int64
 	jitterUs    atomic.Int64
@@ -109,6 +110,11 @@ const (
 	ReplyModeAll     = "all"
 	SendModePrimary  = "primary"
 	SendModeAll      = "all"
+)
+
+const (
+	normalPrimaryStall = 900 * time.Millisecond
+	normalMobileSample = 32
 )
 
 // New creates a new bonding client.
@@ -202,6 +208,7 @@ func (c *Client) Start() error {
 					}
 					path.packetsRecv.Add(1)
 					path.bytesRecv.Add(uint64(n))
+					path.lastRecv.Store(time.Now().UnixNano())
 					// Strip the 4-byte seq header the server now prepends
 					payload := buf[headerSize:n]
 					if wgClientAddr != nil {
@@ -265,12 +272,46 @@ func (c *Client) sendTargets() []*Path {
 	if c.cfg.SendMode != SendModePrimary {
 		return c.paths
 	}
+	active := make([]*Path, 0, len(c.paths))
 	for _, path := range c.paths {
 		if path.active.Load() {
-			return []*Path{path}
+			active = append(active, path)
 		}
 	}
-	return nil
+	if len(active) == 0 {
+		return nil
+	}
+
+	var primary *Path
+	for _, path := range active {
+		if !path.metered {
+			primary = path
+			break
+		}
+	}
+	if primary == nil {
+		return active
+	}
+
+	mobile := make([]*Path, 0, len(active)-1)
+	for _, path := range active {
+		if path != primary && path.metered {
+			mobile = append(mobile, path)
+		}
+	}
+	if len(mobile) == 0 {
+		return []*Path{primary}
+	}
+
+	shouldSampleMobile := c.TotalPackets.Load()%normalMobileSample == 0
+	if primary.isStalled(time.Now()) || shouldSampleMobile {
+		targets := make([]*Path, 0, 1+len(mobile))
+		targets = append(targets, primary)
+		targets = append(targets, mobile...)
+		return targets
+	}
+
+	return []*Path{primary}
 }
 
 func (c *Client) probeLoop() {
@@ -431,6 +472,16 @@ func (p *Path) recordProbeReply(now time.Time) {
 			p.jitterUs.Store((oldJitter*3 + diff) / 4)
 		}
 	}
+}
+
+func (p *Path) isStalled(now time.Time) bool {
+	lastRecv := p.lastRecv.Load()
+	if lastRecv > 0 {
+		return now.Sub(time.Unix(0, lastRecv)) > normalPrimaryStall
+	}
+
+	lastSend := p.lastSend.Load()
+	return lastSend > 0 && now.Sub(time.Unix(0, lastSend)) > normalPrimaryStall
 }
 
 func tuneUDPBuffers(conn *net.UDPConn, label string) {

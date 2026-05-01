@@ -241,11 +241,24 @@ export default function Dashboard({ onLogout }) {
           </div>
 
           {isOn && (
-            <div className="hero-latency">
+            <div className="compact-latency">
               <span>{mode === 'gaming' ? 'Bonded latency' : 'Best path latency'}</span>
               <strong>{bestLatency === null ? '--' : bestLatency.toFixed(0)}<em>ms</em></strong>
             </div>
           )}
+
+          <div className={`mode-toggle in-connection ${isOn || isBusy ? 'locked' : ''}`}>
+            {Object.entries(MODES).map(([key, item]) => (
+              <button
+                key={key}
+                className={`mode-option ${mode === key ? 'selected' : ''}`}
+                onClick={() => setMode(key)}
+                disabled={isOn || isBusy}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
 
           <button
             className={`btn-toggle ${isOn ? 'active' : ''}`}
@@ -259,26 +272,6 @@ export default function Dashboard({ onLogout }) {
 
           <div className="connection-sub">
             {isOn ? `${pathCount} path${pathCount !== 1 ? 's' : ''} bonded in ${modeInfo.label} mode` : modeInfo.summary}
-          </div>
-
-          {isOn && status.paths?.length > 0 && (
-            <LatencyChart paths={status.paths} history={latencyHistory} />
-          )}
-        </section>
-
-        <section className="mode-card">
-          <div className="section-label">Mode</div>
-          <div className={`mode-toggle ${isOn || isBusy ? 'locked' : ''}`}>
-            {Object.entries(MODES).map(([key, item]) => (
-              <button
-                key={key}
-                className={`mode-option ${mode === key ? 'selected' : ''}`}
-                onClick={() => setMode(key)}
-                disabled={isOn || isBusy}
-              >
-                {item.label}
-              </button>
-            ))}
           </div>
           <div className="mode-copy">
             <strong>{modeInfo.summary}</strong>
@@ -330,6 +323,7 @@ export default function Dashboard({ onLogout }) {
                 })}
               </div>
             </section>
+            <LatencyChart paths={status.paths} history={latencyHistory} />
           </>
         )}
 
