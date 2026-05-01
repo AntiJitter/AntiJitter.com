@@ -101,7 +101,7 @@ func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration, 
 	distinctHosts := countServerHosts(serverAddrs) > 1
 
 	for _, ifc := range interfaces {
-		restoreRoute := PreferHostRoute(hostRoutes, ifc.Index)
+		PreferHostRoute(hostRoutes, ifc.Index)
 		var hit *ReachablePath
 		for _, serverAddr := range orderedServerAddrs(serverAddrs, usedHosts, distinctHosts) {
 			if ok, connected := probeOne(ifc, serverAddr, timeout, len(hostRoutes) > 0); ok {
@@ -110,7 +110,6 @@ func Probe(interfaces []Interface, serverAddrs []string, timeout time.Duration, 
 				break
 			}
 		}
-		restoreRoute()
 		if hit != nil {
 			out = append(out, *hit)
 			log.Printf("  [OK] %s (%s) can reach %s connected=%v", hit.Interface.Name, hit.Interface.Addr, hit.ServerAddr, hit.Connected)
@@ -167,9 +166,7 @@ func serverAddrHost(addr string) string {
 
 func probeOne(ifc Interface, serverAddr string, timeout time.Duration, preferConnected bool) (bool, bool) {
 	if preferConnected {
-		if ok, connected := probeOneConnected(ifc, serverAddr, timeout); ok {
-			return ok, connected
-		}
+		return probeOneConnected(ifc, serverAddr, timeout)
 	}
 
 	conn, remote, err := bonding.ListenUDPViaInterface(serverAddr, ifc.Addr, ifc.Index)

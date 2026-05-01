@@ -54,6 +54,8 @@ function appendLatencyHistory(history, paths = []) {
 }
 
 function LatencyChart({ paths, history }) {
+  const max = 240
+  const unplayable = 200
   const series = (paths ?? []).map((path, index) => ({
     key: `${path.name}-${index}`,
     name: path.name,
@@ -63,8 +65,6 @@ function LatencyChart({ paths, history }) {
     values: history[`${path.name}-${index}`] ?? []
   })).filter(item => item.values.some(v => typeof v === 'number'))
 
-  const allValues = series.flatMap(item => item.values).filter(v => typeof v === 'number')
-  const max = Math.max(80, Math.min(240, Math.ceil((Math.max(...allValues, 0) + 20) / 20) * 20))
   const width = 320
   const height = 96
   const pad = 10
@@ -83,14 +83,11 @@ function LatencyChart({ paths, history }) {
     <section className="latency-card">
       <div className="section-label-row">
         <span className="section-label">Latency trend</span>
-        <span className="section-meta">{series.length > 0 ? `${max} ms scale` : 'Collecting'}</span>
       </div>
       <svg className="latency-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Per-path latency trend">
         <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} />
         <line x1={pad} y1={pad} x2={pad} y2={height - pad} />
-        {max >= 200 && (
-          <line className="latency-threshold" x1={pad} y1={height - pad - (200 / max) * (height - pad * 2)} x2={width - pad} y2={height - pad - (200 / max) * (height - pad * 2)} />
-        )}
+        <line className="latency-threshold" x1={pad} y1={height - pad - (unplayable / max) * (height - pad * 2)} x2={width - pad} y2={height - pad - (unplayable / max) * (height - pad * 2)} />
         {series.map(item => (
           <polyline
             key={item.key}
@@ -273,9 +270,15 @@ export default function Dashboard({ onLogout }) {
           <div className="connection-sub">
             {isOn ? `${pathCount} path${pathCount !== 1 ? 's' : ''} bonded in ${modeInfo.label} mode` : modeInfo.summary}
           </div>
-          <div className="mode-copy">
+          <div className={`mode-copy ${isOn ? 'active-chart' : ''}`}>
+            {isOn && status.paths?.length > 0 ? (
+              <LatencyChart paths={status.paths} history={latencyHistory} />
+            ) : (
+              <>
             <strong>{modeInfo.summary}</strong>
             <span>{modeInfo.detail}</span>
+              </>
+            )}
           </div>
         </section>
 
@@ -323,14 +326,13 @@ export default function Dashboard({ onLogout }) {
                 })}
               </div>
             </section>
-            <LatencyChart paths={status.paths} history={latencyHistory} />
           </>
         )}
 
         {isOn && (
           <section className="stats-grid">
             <div className="stat-card">
-              <div className="section-label">Session</div>
+              <div className="section-label">Path traffic</div>
               <div className="stat-pair">
                 <span>Up</span>
                 <strong>{formatMB(totalUp)}</strong>

@@ -232,9 +232,9 @@
 }
 
 .btn-toggle.active {
-  background: var(--surface2);
-  color: var(--dim);
-  border: 1px solid var(--border);
+  background: rgba(255, 69, 58, 0.12);
+  color: #ff8a82;
+  border: 1px solid rgba(255, 69, 58, 0.34);
 }
 
 .btn-toggle:disabled {
@@ -317,6 +317,10 @@
   flex-direction: column;
   gap: 3px;
   line-height: 1.35;
+}
+
+.mode-copy.active-chart {
+  display: block;
 }
 
 .mode-copy strong {
@@ -455,7 +459,7 @@
   border-radius: 14px;
 }
 
-.connection-card .latency-card {
+.mode-copy .latency-card {
   margin-top: 0;
   padding: 0;
   background: transparent;
@@ -463,9 +467,17 @@
   border-radius: 0;
 }
 
+.mode-copy .latency-card .section-label-row {
+  margin-bottom: 5px;
+}
+
+.mode-copy .latency-card .latency-legend {
+  margin-top: 6px;
+}
+
 .latency-chart {
   width: 100%;
-  height: 96px;
+  height: 82px;
   margin-top: 8px;
   display: block;
   background: #080808;
