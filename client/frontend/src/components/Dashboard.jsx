@@ -42,6 +42,14 @@ function pathKind(path, index) {
   return index === 0 ? 'starlink' : 'mobile'
 }
 
+function latencyClass(ms) {
+  if (typeof ms !== 'number' || ms <= 0) return 'unknown'
+  if (ms < 50) return 'good'
+  if (ms < 100) return 'ok'
+  if (ms < 200) return 'warn'
+  return 'bad'
+}
+
 function appendLatencyHistory(history, paths = []) {
   if (!Array.isArray(paths)) return history
   const next = { ...history }
@@ -229,7 +237,6 @@ export default function Dashboard({ onLogout }) {
         <section className={`connection-card ${isOn ? 'active' : ''}`}>
           <div className="connection-top">
             <div>
-              <div className="eyebrow">Connection</div>
               <div className="connection-title">
                 {connecting ? 'Connecting' : isOn ? 'AntiJitter Active' : 'AntiJitter Off'}
               </div>
@@ -240,7 +247,7 @@ export default function Dashboard({ onLogout }) {
           {isOn && (
             <div className="compact-latency">
               <span>{mode === 'gaming' ? 'Bonded latency' : 'Best path latency'}</span>
-              <strong>{bestLatency === null ? '--' : bestLatency.toFixed(0)}<em>ms</em></strong>
+              <strong className={`latency-value ${latencyClass(bestLatency)}`}>{bestLatency === null ? '--' : bestLatency.toFixed(0)}<em>ms</em></strong>
             </div>
           )}
 
@@ -298,8 +305,8 @@ export default function Dashboard({ onLogout }) {
                         <div className="path-top">
                           <div className={`path-dot ${p.active ? 'on' : 'off'}`} />
                           <div>
+                            <span className={`path-kind ${kind}`}>{kind === 'starlink' ? 'Starlink' : 'Mobile data'}</span>
                             <span className="path-name">{p.name}</span>
-                            <span className="path-kind">{kind === 'starlink' ? 'Starlink' : 'Mobile data'}</span>
                           </div>
                         </div>
                         <div className="path-metrics">
@@ -308,7 +315,7 @@ export default function Dashboard({ onLogout }) {
                           {p.send_errors > 0 && <span className="path-errors">{p.send_errors.toLocaleString()} send errors</span>}
                         </div>
                       </div>
-                      <div className={`path-latency ${kind}`}>
+                      <div className={`path-latency ${kind} ${latencyClass(p.latency_ms)}`}>
                         {typeof p.latency_ms === 'number' && p.latency_ms > 0 ? (
                           <>
                             <strong>{p.latency_ms.toFixed(0)} ms</strong>
