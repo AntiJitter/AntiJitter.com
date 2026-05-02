@@ -30,17 +30,19 @@ type WireGuardConfig struct {
 
 // Client talks to the AntiJitter API.
 type Client struct {
-	BaseURL string
-	Token   string
-	http    *http.Client
+	BaseURL  string
+	Token    string
+	DeviceID string
+	http     *http.Client
 }
 
 // New creates an API client.
-func New(baseURL, token string) *Client {
+func New(baseURL, token, deviceID string) *Client {
 	return &Client{
-		BaseURL: baseURL,
-		Token:   token,
-		http:    &http.Client{Timeout: 15 * time.Second},
+		BaseURL:  baseURL,
+		Token:    token,
+		DeviceID: deviceID,
+		http:     &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -51,6 +53,10 @@ func (c *Client) FetchConfig() (*AntiJitterConfig, error) {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
+	if c.DeviceID != "" {
+		req.Header.Set("X-AntiJitter-Device-Id", c.DeviceID)
+		req.Header.Set("X-AntiJitter-Device-Name", "Windows")
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {

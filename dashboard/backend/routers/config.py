@@ -1,49 +1,40 @@
-"""GET /api/config — returns WireGuard + bonding config for the Windows app.
+"""GET /api/config returns WireGuard + bonding config for app clients.
 
-The Windows client calls this on startup to get everything it needs:
-  - WireGuard private key + peer IP (auto-provisioned if not yet set)
-  - Server public key
-  - Bonding server address (Germany VPS)
-  - 4G data limit
-
-Network interfaces are auto-detected by the client — the server doesn't
-know (or need to know) which adapters the user has.
-
-This endpoint auto-provisions WireGuard keys if the user doesn't have them yet,
-so the Windows app is fully self-configuring.
+The endpoint auto-provisions per-device WireGuard keys so one subscribed
+account can run a phone and Windows PC at the same time without reusing the
+same peer identity.
 """
 
 import asyncio
 import ipaddress
 import logging
+import re
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-logger = logging.getLogger(__name__)
 
 from ..auth import get_current_user
 from ..config import settings
 from ..database import get_db
-from ..models import Subscription, User
+from ..models import Subscription, User, WireGuardDevice
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
-# Bonding system uses 10.10.0.0/24 (Germany VPS WireGuard subnet)
+# Bonding system uses 10.10.0.0/24 (Germany VPS WireGuard subnet).
 _SUBNET = ipaddress.IPv4Network("10.10.0.0/24")
-_IP_POOL = [str(ip) for ip in list(_SUBNET.hosts())[1:]]  # .2 → .254
+_IP_POOL = [str(ip) for ip in list(_SUBNET.hosts())[1:]]  # .2 -> .254
 
-# Multiple ports so mobile carriers that block uncommon UDP ports still reach us.
-# :4567 is our native port, :443 is the near-universal fallback (carriers allow UDP/443 for QUIC).
 BONDING_PORTS = [4567, 443]
 DEFAULT_DATA_LIMIT_MB = 50_000  # 50 GB
+MAX_DEVICES_PER_SUBSCRIPTION = 3
+DEFAULT_DEVICE_ID = "default"
+_DEVICE_ID_RE = re.compile(r"[^A-Za-z0-9_.:-]+")
 
-# Peers we've already registered with Germany during this process's lifetime.
-# After an API restart this resets, and we re-register on the next /api/config —
-# which is idempotent (wg set replaces existing peers) and self-heals any drift
-# between the SQLite keys and the live WireGuard server.
+# Peers already registered with Germany during this API process lifetime.
 _registered_peers: set[str] = set()
 
 
@@ -67,18 +58,12 @@ async def _generate_keypair() -> tuple[str, str]:
 
 
 async def _register_peer_on_bonding_server(public_key: str, peer_ip: str) -> None:
-    """Call the Germany VPS peer-management API to add the WireGuard peer.
-
-    Raises HTTPException if the call fails — we can't let the user connect
-    with keys that aren't registered on the server (handshake would fail).
-    """
+    """Call the Germany VPS peer-management API to add the WireGuard peer."""
     if not settings.bonding_peer_api_token:
-        logger.warning("bonding_peer_api_token not set — skipping peer registration")
+        logger.warning("bonding_peer_api_token not set; skipping peer registration")
         return
 
-    # Strip any CIDR suffix — the Germany server expects a bare IP
     bare_ip = peer_ip.split("/", 1)[0]
-
     url = f"{settings.bonding_peer_api_url}/peers"
     headers = {"Authorization": f"Bearer {settings.bonding_peer_api_token}"}
     payload = {"public_key": public_key, "peer_ip": bare_ip}
@@ -105,18 +90,102 @@ async def _next_peer_ip(db: AsyncSession) -> str:
     """Allocate the next available IP from the 10.10.0.0/24 pool."""
     result = await db.execute(select(Subscription.wireguard_peer_ip))
     used = {row[0] for row in result.all() if row[0]}
+
+    result = await db.execute(select(WireGuardDevice.wireguard_peer_ip))
+    used.update(row[0] for row in result.all() if row[0])
+
     for ip in _IP_POOL:
         if ip not in used:
             return ip
     raise HTTPException(status_code=503, detail="IP pool exhausted")
 
 
+def _normalize_device_id(device_id: str | None) -> str:
+    raw = (device_id or DEFAULT_DEVICE_ID).strip() or DEFAULT_DEVICE_ID
+    normalized = _DEVICE_ID_RE.sub("-", raw)[:128].strip("-")
+    return normalized or DEFAULT_DEVICE_ID
+
+
+async def _device_for_config(
+    db: AsyncSession,
+    sub: Subscription,
+    device_id: str,
+    device_name: str | None,
+) -> WireGuardDevice:
+    result = await db.execute(
+        select(WireGuardDevice).where(
+            WireGuardDevice.subscription_id == sub.id,
+            WireGuardDevice.device_id == device_id,
+        )
+    )
+    device = result.scalar_one_or_none()
+    clean_name = device_name[:128] if device_name else None
+
+    if device:
+        if clean_name and device.device_name != clean_name:
+            device.device_name = clean_name
+            await db.commit()
+        return device
+
+    result = await db.execute(
+        select(WireGuardDevice).where(WireGuardDevice.subscription_id == sub.id)
+    )
+    devices = result.scalars().all()
+    if len(devices) >= MAX_DEVICES_PER_SUBSCRIPTION:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Device limit reached ({MAX_DEVICES_PER_SUBSCRIPTION})",
+        )
+
+    # First modern device for an existing subscription adopts the legacy
+    # single-peer columns so current users keep their original key/IP.
+    if (
+        not devices
+        and sub.wireguard_private_key
+        and sub.wireguard_public_key
+        and sub.wireguard_peer_ip
+    ):
+        device = WireGuardDevice(
+            subscription_id=sub.id,
+            device_id=device_id,
+            device_name=clean_name,
+            wireguard_private_key=sub.wireguard_private_key,
+            wireguard_public_key=sub.wireguard_public_key,
+            wireguard_peer_ip=sub.wireguard_peer_ip,
+        )
+        db.add(device)
+        await db.commit()
+        await db.refresh(device)
+        return device
+
+    private_key, public_key = await _generate_keypair()
+    peer_ip = await _next_peer_ip(db)
+
+    await _register_peer_on_bonding_server(public_key, peer_ip)
+    _registered_peers.add(public_key)
+
+    device = WireGuardDevice(
+        subscription_id=sub.id,
+        device_id=device_id,
+        device_name=clean_name,
+        wireguard_private_key=private_key,
+        wireguard_public_key=public_key,
+        wireguard_peer_ip=peer_ip,
+    )
+    db.add(device)
+
+    if not sub.wireguard_private_key:
+        sub.wireguard_private_key = private_key
+        sub.wireguard_public_key = public_key
+        sub.wireguard_peer_ip = peer_ip
+
+    await db.commit()
+    await db.refresh(device)
+    return device
+
+
 def _bonding_hosts() -> list[str]:
-    hosts = [
-        h.strip()
-        for h in settings.bonding_hosts.split(",")
-        if h.strip()
-    ]
+    hosts = [h.strip() for h in settings.bonding_hosts.split(",") if h.strip()]
     if not hosts:
         return ["178.104.168.177"]
     return hosts
@@ -130,11 +199,12 @@ def _bonding_servers() -> list[str]:
 
 @router.get("")
 async def get_config(
+    x_antijitter_device_id: str | None = Header(default=None),
+    x_antijitter_device_name: str | None = Header(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Return full WireGuard + bonding config for the authenticated user."""
-    # Find active subscription
     result = await db.execute(
         select(Subscription).where(
             Subscription.user_id == user.id,
@@ -145,33 +215,19 @@ async def get_config(
     if not sub:
         raise HTTPException(status_code=403, detail="No active subscription")
 
-    # Auto-provision WireGuard keys if not yet set
-    if not sub.wireguard_private_key:
-        private_key, public_key = await _generate_keypair()
-        peer_ip = await _next_peer_ip(db)
+    device_id = _normalize_device_id(x_antijitter_device_id)
+    device = await _device_for_config(db, sub, device_id, x_antijitter_device_name)
 
-        # Register on Germany VPS first — if this fails we don't persist
-        # keys that can't actually connect
-        await _register_peer_on_bonding_server(public_key, peer_ip)
-        _registered_peers.add(public_key)
-
-        sub.wireguard_private_key = private_key
-        sub.wireguard_public_key = public_key
-        sub.wireguard_peer_ip = peer_ip
-        await db.commit()
-    elif sub.wireguard_public_key not in _registered_peers:
-        # Keys exist in DB but we haven't confirmed they're live on Germany
-        # (API restart, earlier registration failure, stale DB from before the
-        # peer API existed). Register now — wg set is idempotent.
+    if device.wireguard_public_key not in _registered_peers:
         await _register_peer_on_bonding_server(
-            sub.wireguard_public_key, sub.wireguard_peer_ip
+            device.wireguard_public_key, device.wireguard_peer_ip
         )
-        _registered_peers.add(sub.wireguard_public_key)
+        _registered_peers.add(device.wireguard_public_key)
 
     return {
         "wireguard": {
-            "private_key": sub.wireguard_private_key,
-            "address": f"{sub.wireguard_peer_ip}/24",
+            "private_key": device.wireguard_private_key,
+            "address": f"{device.wireguard_peer_ip}/24",
             "dns": "1.1.1.1",
             "peer_key": settings.server_wg_public_key,
             "allowed_ips": ["10.10.0.0/24"],

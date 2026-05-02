@@ -62,7 +62,7 @@ class BondingVpnService : VpnService() {
     private var bonding: BondingClient? = null
     private var wireguard: WireGuardTunnel? = null
     private var binder: NetworkBinder? = null
-    private var pendingMode: BondingClient.Mode = BondingClient.Mode.GAMING
+    private var pendingMode: BondingClient.Mode = BondingClient.Mode.NORMAL
 
     override fun onCreate() {
         super.onCreate()
@@ -82,9 +82,7 @@ class BondingVpnService : VpnService() {
                     setState(State.FAILED, "Missing config")
                     return START_NOT_STICKY
                 }
-                val mode = intent.getStringExtra(EXTRA_TUNNEL_MODE)
-                    ?.let { runCatching { BondingClient.Mode.valueOf(it) }.getOrNull() }
-                    ?: BondingClient.Mode.GAMING
+                val mode = parseMode(intent.getStringExtra(EXTRA_TUNNEL_MODE))
                 startTunnel(configJson, mode)
             }
             ACTION_STOP -> {
@@ -92,8 +90,7 @@ class BondingVpnService : VpnService() {
                 stopSelf()
             }
             ACTION_SET_MODE -> {
-                val mode = intent.getStringExtra(EXTRA_TUNNEL_MODE)
-                    ?.let { runCatching { BondingClient.Mode.valueOf(it) }.getOrNull() }
+                val mode = parseModeOrNull(intent.getStringExtra(EXTRA_TUNNEL_MODE))
                 if (mode != null) {
                     Log.i(TAG, "live mode change to $mode")
                     bonding?.setMode(mode)
@@ -407,6 +404,15 @@ class BondingVpnService : VpnService() {
         /** Globally observable state for the UI. Single instance — only one tunnel at a time. */
         val statusFlow = MutableStateFlow(Status(State.DISCONNECTED, null))
         val status: StateFlow<Status> = statusFlow.asStateFlow()
+
+        private fun parseMode(raw: String?): BondingClient.Mode =
+            parseModeOrNull(raw) ?: BondingClient.Mode.NORMAL
+
+        private fun parseModeOrNull(raw: String?): BondingClient.Mode? = when (raw) {
+            "BROWSING" -> BondingClient.Mode.NORMAL
+            null -> null
+            else -> runCatching { BondingClient.Mode.valueOf(raw) }.getOrNull()
+        }
 
         fun start(context: Context, configJson: String, mode: BondingClient.Mode) {
             val intent = Intent(context, BondingVpnService::class.java)

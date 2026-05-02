@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -45,6 +45,30 @@ class Subscription(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="subscriptions")
+    wireguard_devices: Mapped[list["WireGuardDevice"]] = relationship(
+        back_populates="subscription",
+        cascade="all, delete-orphan",
+    )
+
+
+class WireGuardDevice(Base):
+    __tablename__ = "wireguard_devices"
+    __table_args__ = (
+        UniqueConstraint("subscription_id", "device_id", name="uq_wireguard_devices_subscription_device"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subscription_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("subscriptions.id"), nullable=False, index=True
+    )
+    device_id: Mapped[str] = mapped_column(String, nullable=False)
+    device_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    wireguard_public_key: Mapped[str] = mapped_column(String, nullable=False)
+    wireguard_private_key: Mapped[str] = mapped_column(String, nullable=False)
+    wireguard_peer_ip: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    subscription: Mapped["Subscription"] = relationship(back_populates="wireguard_devices")
 
 
 class Session(Base):

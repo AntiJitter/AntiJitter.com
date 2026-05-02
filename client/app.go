@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -276,7 +278,12 @@ func (a *App) startGameMode() error {
 	runtime.EventsEmit(a.ctx, "connecting", true)
 
 	// Fetch config from API
-	cfg, err := api.New("https://app.antijitter.com", token).FetchConfig()
+	deviceID, err := a.deviceID()
+	if err != nil {
+		runtime.EventsEmit(a.ctx, "connecting", false)
+		return fmt.Errorf("device id: %w", err)
+	}
+	cfg, err := api.New("https://app.antijitter.com", token, deviceID).FetchConfig()
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "connecting", false)
 		return fmt.Errorf("fetch config: %w", err)
@@ -495,6 +502,51 @@ func probeStarlinkDish() StarlinkStatus {
 func (a *App) tokenPath() string {
 	dir, _ := os.UserConfigDir()
 	return filepath.Join(dir, "AntiJitter", "token.txt")
+}
+
+func (a *App) deviceIDPath() string {
+	dir, _ := os.UserConfigDir()
+	return filepath.Join(dir, "AntiJitter", "device_id.txt")
+}
+
+func (a *App) deviceID() (string, error) {
+	path := a.deviceIDPath()
+	if data, err := os.ReadFile(path); err == nil {
+		id := strings.TrimSpace(string(data))
+		if id != "" {
+			return id, nil
+		}
+	}
+
+	id, err := randomDeviceID("windows")
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(id), 0600); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func randomDeviceID(prefix string) (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	hexID := hex.EncodeToString(b[:])
+	return fmt.Sprintf("%s-%s-%s-%s-%s-%s",
+		prefix,
+		hexID[0:8],
+		hexID[8:12],
+		hexID[12:16],
+		hexID[16:20],
+		hexID[20:32],
+	), nil
 }
 
 func (a *App) saveToken(token string) {

@@ -56,7 +56,7 @@ import kotlinx.serialization.json.Json
 class MainActivity : ComponentActivity() {
 
     private lateinit var pendingConfigJson: String
-    private var pendingMode: BondingClient.Mode = BondingClient.Mode.GAMING
+    private var pendingMode: BondingClient.Mode = BondingClient.Mode.NORMAL
     private val vpnPermission =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
             if (res.resultCode == Activity.RESULT_OK) {
@@ -287,7 +287,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 android.util.Log.i("AJ.UI", "toggleTunnel: GET /api/config")
-                val fetched = api.fetchConfig(token)
+                val fetched = api.fetchConfig(token, store.deviceId())
                 android.util.Log.i("AJ.UI", "toggleTunnel: config OK, bonding_servers=${fetched.bonding_servers}")
                 // BEGIN DEV-TOGGLE (route-all) — remove for production
                 val cfg = if (_ui.value.routeAllTraffic) {
@@ -391,9 +391,9 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         val busy: Boolean = false,
         val error: String? = null,
         val startRequest: String? = null,
-        val tunnelMode: BondingClient.Mode = BondingClient.Mode.GAMING,
+        val tunnelMode: BondingClient.Mode = BondingClient.Mode.NORMAL,
         /** Snapshot of [tunnelMode] at the moment the start was requested, so the consent dialog uses the same mode the user was looking at. */
-        val pendingMode: BondingClient.Mode = BondingClient.Mode.GAMING,
+        val pendingMode: BondingClient.Mode = BondingClient.Mode.NORMAL,
         // BEGIN DEV-TOGGLE (route-all) — remove for production
         val starlinkAlertsEnabled: Boolean = false,
         val routeAllTraffic: Boolean = false,
