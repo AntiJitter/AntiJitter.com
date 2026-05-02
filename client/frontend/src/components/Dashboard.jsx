@@ -214,6 +214,25 @@ export default function Dashboard({ onLogout }) {
     .filter(v => typeof v === 'number' && v > 0)
   const bestLatency = latencyValues.length > 0 ? Math.min(...latencyValues) : null
   const statusLabel = connecting ? 'Connecting' : isOn ? 'Connected' : 'Idle'
+  const connectionTitle = connecting
+    ? 'Connecting'
+    : isOn
+      ? 'AntiJitter Active'
+      : 'AntiJitter Off'
+  const progressTitle = connecting
+    ? 'Starting bonded tunnel'
+    : toggling && isOn
+      ? 'Stopping tunnel'
+      : toggling
+        ? 'Preparing connection'
+        : ''
+  const progressDetail = connecting
+    ? 'Detecting adapters, pinning routes, opening bonding paths, and starting WireGuard. This can take a little while on Windows.'
+    : toggling && isOn
+      ? 'Removing tunnel routes and closing bonding sockets.'
+      : toggling
+        ? 'Preparing AntiJitter connection state.'
+        : ''
 
   return (
     <div className="dashboard">
@@ -237,9 +256,7 @@ export default function Dashboard({ onLogout }) {
         <section className={`connection-card ${isOn ? 'active' : ''}`}>
           <div className="connection-top">
             <div>
-              <div className="connection-title">
-                {connecting ? 'Connecting' : isOn ? 'AntiJitter Active' : 'AntiJitter Off'}
-              </div>
+              <div className="connection-title">{connectionTitle}</div>
             </div>
             <div className={`status-dot ${isOn ? 'on' : ''} ${isBusy ? 'busy' : ''}`} />
           </div>
@@ -271,6 +288,13 @@ export default function Dashboard({ onLogout }) {
           >
             {isBusy ? <span className="btn-spinner" /> : isOn ? 'Disconnect' : 'Connect'}
           </button>
+
+          {progressTitle && (
+            <div className="connect-progress">
+              <strong>{progressTitle}</strong>
+              <span>{progressDetail}</span>
+            </div>
+          )}
 
           {error && <div className="panel-error">{error}</div>}
 
