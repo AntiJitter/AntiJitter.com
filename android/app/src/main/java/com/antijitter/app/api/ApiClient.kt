@@ -78,10 +78,12 @@ class ApiClient(
         }
     }
 
-    suspend fun fetchConfig(token: String): AntiJitterConfig = withContext(Dispatchers.IO) {
+    suspend fun fetchConfig(token: String, deviceId: String): AntiJitterConfig = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url("$baseUrl/api/config")
             .header("Authorization", "Bearer $token")
+            .header("X-AntiJitter-Device-Id", deviceId)
+            .header("X-AntiJitter-Device-Name", "Android")
             .get()
             .build()
         http.newCall(req).execute().use { resp ->

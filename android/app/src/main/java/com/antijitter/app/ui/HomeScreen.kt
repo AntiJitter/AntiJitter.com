@@ -336,8 +336,8 @@ private fun ModeSelectorCard(
     onSelect: (BondingClient.Mode) -> Unit,
 ) {
     val description = when (selected) {
+        BondingClient.Mode.NORMAL -> "Saves mobile data: Wi-Fi first, mobile backup."
         BondingClient.Mode.GAMING -> "Best for games: every packet uses both paths."
-        BondingClient.Mode.BROWSING -> "Saves mobile data: Wi-Fi first, mobile backup."
     }
     AppCard(contentPadding = 14.dp) {
         Text("MODE", color = Dim, style = MaterialTheme.typography.labelSmall)
@@ -350,15 +350,15 @@ private fun ModeSelectorCard(
                 .padding(4.dp),
         ) {
             ModeChip(
-                label = "Gaming",
-                selected = selected == BondingClient.Mode.GAMING,
-                onClick = { onSelect(BondingClient.Mode.GAMING) },
+                label = "Normal",
+                selected = selected == BondingClient.Mode.NORMAL,
+                onClick = { onSelect(BondingClient.Mode.NORMAL) },
                 modifier = Modifier.weight(1f),
             )
             ModeChip(
-                label = "Browsing",
-                selected = selected == BondingClient.Mode.BROWSING,
-                onClick = { onSelect(BondingClient.Mode.BROWSING) },
+                label = "Gaming",
+                selected = selected == BondingClient.Mode.GAMING,
+                onClick = { onSelect(BondingClient.Mode.GAMING) },
                 modifier = Modifier.weight(1f),
             )
         }

@@ -6,12 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import get_current_user
 from ..config import settings
 from ..database import get_db
-from ..models import Subscription, User
+from ..models import Subscription, User, WireGuardDevice
 
 router = APIRouter(prefix="/api/subscription", tags=["subscription"])
 
 PLANS = {
-    "solo": {"label": "AntíJitter", "usd": 5, "devices": "unlimited"},
+    "solo": {"label": "AntíJitter", "usd": 5, "devices": 3},
 }
 
 
@@ -124,6 +124,24 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 sub.wireguard_public_key = None
                 sub.wireguard_private_key = None
                 sub.wireguard_peer_ip = None
+                await db.commit()
+            result = await db.execute(
+                select(WireGuardDevice).where(WireGuardDevice.subscription_id == sub.id)
+            )
+            devices = result.scalars().all()
+            for device in devices:
+                import asyncio
+                try:
+                    proc = await asyncio.create_subprocess_shell(
+                        f"wg set {settings.wg_interface} peer {device.wireguard_public_key} remove",
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    await proc.communicate()
+                except Exception:
+                    pass
+                await db.delete(device)
+            if devices:
                 await db.commit()
 
     return {"ok": True}

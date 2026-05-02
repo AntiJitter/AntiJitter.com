@@ -33,12 +33,11 @@ class BondingClient(
 ) {
     /**
      * How packets are dispatched across active paths.
+     *  - [NORMAL]: prefer the non-cellular path; cellular sockets stay warm via
+     *    probes and carry real payload only when the primary stops delivering replies.
      *  - [GAMING]: every packet sent on every active path. Zero spike loss, uses cellular constantly.
-     *  - [BROWSING]: prefer the non-cellular path; cellular sockets stay warm and carry
-     *    packets when the primary stops delivering replies. Saves cellular data for users
-     *    who don't need redundancy on every packet (general web / streaming sessions).
      */
-    enum class Mode { GAMING, BROWSING }
+    enum class Mode { NORMAL, GAMING }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val seq = Sequencer()
@@ -46,7 +45,7 @@ class BondingClient(
     private val paths = mutableListOf<PathRuntime>()
     private val pathsLock = Any()
 
-    @Volatile private var mode: Mode = Mode.GAMING
+    @Volatile private var mode: Mode = Mode.NORMAL
 
     private var localSocket: DatagramSocket? = null
     @Volatile private var localPeer: InetSocketAddress? = null
@@ -237,14 +236,16 @@ class BondingClient(
 
     /**
      * Decides which active paths get a copy of each packet.
-     * GAMING: all of them. BROWSING: the non-cellular primary, plus sparse mobile
-     * samples and full mobile fallback when the primary appears stalled.
+     * NORMAL: the non-cellular primary, plus full mobile fallback only when the
+     * primary appears stalled. Do not send routine real-payload mobile samples:
+     * with server reply-mode=primary, those samples can make mobile the latest
+     * inbound path and burn mobile downlink.
+     * GAMING: all of them.
      */
     private fun pickTargets(snapshot: List<PathRuntime>): List<PathRuntime> {
         val active = snapshot.filter { it.active }
         return when (mode) {
-            Mode.GAMING -> active
-            Mode.BROWSING -> {
+            Mode.NORMAL -> {
                 val primary = active.firstOrNull { !it.cellular }
                 if (primary == null) {
                     active
@@ -253,8 +254,7 @@ class BondingClient(
                     if (mobile.isEmpty()) {
                         listOf(primary)
                     } else {
-                        val shouldSampleMobile = totalPackets.get() % BROWSING_MOBILE_SAMPLE_EVERY == 0L
-                        if (isPrimaryStalled(primary, System.currentTimeMillis()) || shouldSampleMobile) {
+                        if (isPrimaryStalled(primary, System.currentTimeMillis())) {
                             listOf(primary) + mobile
                         } else {
                             listOf(primary)
@@ -262,6 +262,7 @@ class BondingClient(
                     }
                 }
             }
+            Mode.GAMING -> active
         }
     }
 
@@ -274,8 +275,8 @@ class BondingClient(
 
     private fun sendReplyModeControl(path: PathRuntime) {
         val replyMode = when (mode) {
+            Mode.NORMAL -> REPLY_MODE_PRIMARY
             Mode.GAMING -> REPLY_MODE_ALL
-            Mode.BROWSING -> REPLY_MODE_PRIMARY
         }
         val payload = Protocol.buildReplyMode(replyMode)
         try {
@@ -288,10 +289,10 @@ class BondingClient(
 
     private fun isPrimaryStalled(primary: PathRuntime, now: Long): Boolean {
         val lastUnique = primary.lastUniqueRxAtMs.get()
-        if (lastUnique > 0L) return now - lastUnique > BROWSING_PRIMARY_STALL_MS
+        if (lastUnique > 0L) return now - lastUnique > NORMAL_PRIMARY_STALL_MS
 
         val lastSent = primary.lastSentAtMs.get()
-        return lastSent > 0L && now - lastSent > BROWSING_PRIMARY_STALL_MS
+        return lastSent > 0L && now - lastSent > NORMAL_PRIMARY_STALL_MS
     }
 
     private fun hasStalledPrimary(now: Long): Boolean {
@@ -428,8 +429,7 @@ class BondingClient(
 
     companion object {
         private const val TAG = "AJ.Bonding"
-        private const val BROWSING_PRIMARY_STALL_MS = 900L
-        private const val BROWSING_MOBILE_SAMPLE_EVERY = 32L
+        private const val NORMAL_PRIMARY_STALL_MS = 900L
         private const val REPLY_MODE_PRIMARY = "primary"
         private const val REPLY_MODE_ALL = "all"
 
