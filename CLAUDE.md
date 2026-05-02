@@ -230,6 +230,13 @@ Known Android limitations:
 - Normal mode can still use mobile data during real Starlink stalls, high
   latency, or speedtests. Recent tests showed low server-side redundancy in
   Normal/Browsing and full redundancy in Gaming after PR #66.
+- Android Normal/Browsing may still share the same trap Windows had before
+  PR #70: routine real-payload sampling on mobile can make the server's
+  `reply-mode:primary` choose mobile as the latest inbound path. If Android
+  Normal shows unexpectedly high mobile usage, investigate removing routine
+  mobile real-payload samples and keeping mobile warm with probes plus
+  stall-triggered payload only, or add explicit server-side primary path
+  selection.
 
 ## Windows Status And Next Priority
 
@@ -266,6 +273,17 @@ Current Windows architecture:
   Wi-Fi -> `195.201.250.234`.
 - Wintun is packaged/installed by the app; users should not manually download
   `wintun.dll`.
+- Windows now has user-facing **Normal** and **Gaming** modes. Gaming requests
+  `reply-mode:all` and sends every packet on every active path. Normal requests
+  `reply-mode:primary`, keeps mobile paths warm with probes, and only sends
+  real mobile payload when the primary path appears stalled. This preserves
+  Starlink throughput and avoids using mobile data for routine downloads.
+- Current Windows Normal speedtest proof: Starlink Ethernet + Android mobile
+  hotspot both active, Normal mode showed about 286 Mbps down through the
+  Hetzner IP while mobile downlink stayed tiny compared with Starlink. This is
+  expected and desirable.
+- Windows Gaming speedtest proof: full two-path redundancy can exceed Normal
+  throughput when both downlink paths are used, but it consumes mobile data.
 
 Critical Windows lesson:
 
@@ -277,35 +295,37 @@ Critical Windows lesson:
 
 Known Windows gaps:
 
-- No Gaming/Normal mode parity yet; current Windows route-all proof requests
-  `reply-mode:all` and sends every packet on every active path.
-- Stats are much simpler than Android: no received bytes, failovers, unique RX,
-  duplicate RX, per-path latency/jitter, or sparkline.
+- Normal/Gaming mode parity exists, but failover tuning still needs more real
+  outage tests. Normal should show low mobile data while Starlink is healthy,
+  then mobile should rise when Starlink stalls.
+- Stats are still simpler than Android: no failovers, unique RX, duplicate RX,
+  or true through-tunnel bonded probes yet.
 - Mobile/secondary data accounting currently treats any path not named
   `Starlink` as mobile; this is not robust on Windows adapter names.
-- UI is older than Android and has encoding artifacts from earlier edits.
+- UI has moved toward the Android HomeScreen direction, but more compact polish
+  is still planned.
 - No Windows Starlink card yet.
 - No guided "Share to Xbox" workflow yet. Classic ICS works manually, but the
   app does not configure or validate it.
 - Xbox/Open NAT is not solved. Current gateway path is double NAT:
   Xbox/device -> Windows ICS -> AntiJitter tunnel -> VPS NAT -> Internet.
   Open NAT likely needs later port-forwarding or allocated public port ranges.
-- Path `sent`/`up` counters are attempted sends. If a Wi-Fi/mobile path loses
-  downlink replies, the UI may still show `up` packets increasing until path
-  liveness marks it inactive. Add explicit liveness/probe handling before
-  treating `up` counters as proof that a path is healthy.
+- UI should emphasize downlink bytes and packets for users. Uplink send counts
+  are useful diagnostics, but can mislead because they are attempted sends.
 
 Recommended Windows next steps:
 
-1. Add Windows Gaming/Normal mode parity. Gaming should use `reply-mode:all`;
-   Normal should use `reply-mode:primary`.
-2. Add a guided "Share to Xbox" panel for classic ICS:
+1. Add a guided "Share to Xbox" panel for classic ICS:
    AntiJitter adapter -> Sharing -> Microsoft Wi-Fi Direct adapter or Xbox
    Ethernet adapter.
+2. Keep testing Normal mode during real Starlink handoffs. Expected signal:
+   mobile downlink stays low during healthy Starlink, then rises during primary
+   stalls without dropping the tunnel.
 3. Verify Xbox public IP becomes the VPS IP and Starlink handoff spikes are
    hidden by mobile path delivery.
 4. Add per-path latency/jitter monitor to Windows.
-5. Add better stats: sent, received, mobile data, failovers, unique RX, dupes.
+5. Add better stats: mobile data, failovers, unique RX, dupes, and downlink
+   packet counts. Keep user-facing path stats focused on downlink.
 6. Modernize Windows UI toward Android HomeScreen design.
 7. Add console NAT groundwork later: API-allocated public port ranges, server
    forwarding to the user's WireGuard IP, and Windows forwarding to Xbox.
@@ -493,6 +513,28 @@ Expected route-all success signal:
   identity: `/api/config` currently returns one private key and one
   `10.10.0.x` address per subscription/user. Do not assume one account can run
   multiple simultaneous clients until per-device WireGuard peers are implemented.
+
+2026-05-01 Windows mode/UI findings:
+
+- PR #70 moved Windows from route-all proof toward a usable gateway beta:
+  packaged Wintun/WebView startup hardening, taller fixed window, Android-style
+  compact dark UI, capped latency chart, Normal/Gaming mode selector, and
+  downlink-focused path stats.
+- Windows Normal mode now maps to `reply-mode:primary` and primary-path send
+  behavior. Mobile paths stay reachable via probes and only carry real payload
+  when the primary path appears stalled. Do not reintroduce routine mobile
+  payload sampling in Normal mode without also fixing server primary-path
+  selection, because sampling can make the server reply down the slower mobile
+  path and cap speedtests.
+- Windows Gaming mode maps to `reply-mode:all` and sends every packet over all
+  active paths. It is the right mode for active games and voice, but it can burn
+  mobile data during downloads.
+- Normal mode with Starlink Ethernet plus Android mobile hotspot produced about
+  286 Mbps down while the mobile card showed only a few MB/packets. Treat small
+  mobile downlink counts in Normal mode as proof the path is warm, not a bug.
+- The Windows latency chart should stay capped around 200-250 ms with a red
+  unplayable threshold line, so 1000-2000 ms Starlink spikes do not flatten the
+  normal 40-120 ms range.
 
 ## Assistant Operating Rules
 

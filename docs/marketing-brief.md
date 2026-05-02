@@ -138,12 +138,15 @@ Typography: heavy numerals (800 weight), tabular-nums on all live metrics, minim
 
 ---
 
-## What's actually built today (April 2026)
+## What's actually built today (May 2026)
 
 - **Android app** — Game Mode toggle, Gaming/Normal mode, per-path latency + jitter, session stats, seamless failover counter, phone-only bonded traffic
 - **Bonding server** — Germany VPS, WireGuard + multi-path UDP dedup, two public bonding IPs, per-client reply modes, WireGuard-index client isolation
 - **Dashboard** — `app.antijitter.com`, React SPA, WebSocket latency stream, StarlinkPingChart, Stripe scaffold, user auth
-- **Windows gateway proof** — route-all Windows PC traffic through AntiJitter; classic ICS hotspot sharing made a connected device show the Hetzner public IP; Xbox Ethernet ICS produced Moderate NAT and started a large game update through AntiJitter
+- **Windows gateway beta** — route-all Windows PC traffic through AntiJitter with Normal/Gaming modes, Android-style path telemetry, packaged Wintun, and classic ICS sharing for hotspot or Ethernet clients
+- **Windows Normal mode proof** — Starlink stayed primary, mobile data stayed low, and a speedtest reached about 286 Mbps through the Hetzner IP instead of falling back to mobile speed
+- **Windows Gaming mode proof** — full redundancy over Starlink + mobile data works and can use both downlinks, but intentionally consumes more mobile data
+- **Windows sharing proof** — classic ICS hotspot sharing made a connected device show the Hetzner public IP; Xbox Ethernet ICS produced Moderate NAT and started a large game update through AntiJitter
 - **Real Xbox session proof** — 3+ hour Call of Duty session through Windows gateway had zero disconnects, with in-game ping roughly 40-70 ms
 - **Protocol** — seq header, sliding-window dedup, fan-out on all active paths, backward-compatible `seq=0` control payloads for reply mode
 - **Dual status-bar icons** — `setUnderlyingNetworks` wired; Android shows both Wi-Fi + cellular icons simultaneously
@@ -152,16 +155,17 @@ Typography: heavy numerals (800 weight), tabular-nums on all live metrics, minim
 
 ## What is NOT built (roadmap / honest disclaimer)
 
-- **Windows polished modes** — Windows route-all works, but Gaming/Normal UI parity is not built yet
+- **Production Windows onboarding** — Windows gateway beta works manually, but guided Share to Xbox setup, validation, installer polish, and support flows are not finished
 - **SWITCH hardware** — concept stage; Kickstarter pre-launch
 - **iOS** — not planned until Android + Windows are stable
 - **Game-only routing** — ASN IP ranges in DB, not yet wired into AllowedIPs (routes all traffic today)
 - **Production multi-user hardening** — basic per-client isolation shipped, but auth, rate limits, abuse controls, and ops hardening still need work
 - **True through-tunnel bonded latency** — current HeroLatencyCard shows `min(path RTTs)` as an approximation; real bonded probe requires seq-tagged round-trips through the tunnel
-- **Console/Open NAT support** — Windows gateway sharing is proven for at least one hotspot client, but Xbox testing and Open NAT forwarding are not done
+- **Console/Open NAT support** — Windows gateway sharing and Xbox gameplay are proven, but Open NAT is not solved; first Xbox test showed Moderate NAT
 - **Android hotspot sharing** — Android hotspot and USB tethered clients bypass the app VPN in current tests
 - **Game-only protection** — not built yet; large console updates can burn mobile data in Gaming mode, so game/update classification is future premium/pro work
 - **Multiple simultaneous devices per account** — not built yet; current config is one WireGuard identity per subscription/user, so Android + Windows on the same account can collide
+- **Normal-mode mobile tuning across platforms** — Windows Normal now preserves Starlink speed and mobile data well; Android Normal/Browsing still needs the same anti-sampling review if mobile usage remains high
 
 ---
 
@@ -214,5 +218,5 @@ Typography: heavy numerals (800 weight), tabular-nums on all live metrics, minim
 - Do not say "VPN" in user-facing copy — accurate technically but carries privacy/security connotations we don't want
 - Do not imply 4G is free — users pay their carrier; we just use the data they already have
 - Do not claim Android/iOS hotspot sharing works; Android hotspot and USB tethering bypassed the app VPN in tests
-- Do not claim Xbox/Open NAT is solved until Xbox traffic and forwarding are tested end to end
+- Do not claim Open NAT is solved; current Xbox gateway proof reached Moderate NAT and needs later forwarding/port-range work
 - Do not quote simulated benchmark numbers as measured results
