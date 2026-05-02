@@ -133,8 +133,8 @@
 }
 
 .connection-card.active {
-  border-color: rgba(0, 200, 215, 0.35);
-  box-shadow: 0 0 0 1px rgba(0, 200, 215, 0.06);
+  border-color: var(--border);
+  box-shadow: none;
 }
 
 .connection-top,
@@ -281,6 +281,28 @@
   text-align: center;
 }
 
+.connect-progress {
+  padding: 10px 11px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  line-height: 1.35;
+}
+
+.connect-progress strong {
+  display: block;
+  color: var(--white);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.connect-progress span {
+  display: block;
+  margin-top: 3px;
+  color: var(--dim);
+  font-size: 12px;
+}
+
 .connection-sub,
 .section-meta,
 .path-kind,
@@ -370,11 +392,11 @@
 }
 
 .path-card.starlink.active {
-  border-color: rgba(0, 145, 255, 0.45);
+  border-color: var(--border);
 }
 
 .path-card.mobile.active {
-  border-color: rgba(0, 255, 176, 0.4);
+  border-color: var(--border);
 }
 
 .path-top {
@@ -605,7 +627,7 @@
 .starlink-card {
   margin-top: 12px;
   padding: 13px;
-  border-color: rgba(0, 145, 255, 0.25);
+  border-color: var(--border);
   border-radius: 22px;
 }
 
