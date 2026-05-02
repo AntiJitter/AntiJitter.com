@@ -151,12 +151,26 @@ a marketing page.
 Primary Windows screen:
 
 - Header/account row.
-- Game Mode hero card with active/off state and path count.
-- Mode selector: **Gaming** and **Normal**. Gaming should request
-  `reply-mode:all`; Normal should request `reply-mode:primary`.
-- Active paths grid with sent, received, packet counts, and later latency/jitter.
-- Session summary with sent, received, mobile data, failovers, unique RX, and
-  dupes once backend/client stats exist.
+- Compact AntiJitter hero card with active/off state, best path latency, path
+  count, connect/disconnect, and the mode selector in the same first viewport.
+- Mode selector: **Normal** on the left and **Gaming** on the right. Normal is
+  the default to avoid burning mobile data accidentally.
+- Normal should request `reply-mode:primary`, send real payload on the primary
+  non-metered path, keep mobile paths warm with probes, and only send real
+  mobile payload when the primary path appears stalled.
+- Gaming should request `reply-mode:all` and send every packet on every active
+  path.
+- Connected hero card includes a compact latency chart capped around 240 ms with
+  a red unplayable threshold line around 200 ms. Do not show scale text; the cap
+  keeps 1000-2000 ms Starlink spikes from flattening the normal 40-120 ms range.
+- Active paths list with provider first and adapter second:
+  **Starlink** / `Ethernet 2`, **Mobile data** / `Wi-Fi`, etc. Provider text and
+  chart lines use the path colors: Starlink `#0091FF`, Mobile data `#00FFB0`,
+  Bonded `#00C8D7`.
+- Active path stats should show downlink bytes and down packets. Uplink send
+  counts are diagnostics and should not be the primary user-facing metric.
+- Path traffic / session summaries should prioritize downlink, mobile data,
+  failovers, unique RX, and dupes once backend/client stats exist.
 - Temporary **DEV: route ALL traffic** row until route-all is a normal Windows
   mode.
 - **Share to Xbox** panel for Windows gateway setup.
@@ -210,11 +224,33 @@ The Android UI now reserves slots for these but shows `—` until they exist:
 
 Track every change here so the Android port is a translation, not a redesign.
 
+### 2026-05-01 - Windows Normal/Gaming UI and data behavior
+- PR #70 moved the Windows app from route-all proof toward a usable gateway
+  beta: packaged Wintun/WebView startup hardening, taller fixed window, compact
+  Android-style dark UI, Normal/Gaming selector, capped latency chart, and
+  downlink-focused path stats.
+- Windows Normal now maps to `reply-mode:primary`. Starlink/non-metered paths
+  carry normal payload; mobile paths stay warm via probes and only carry real
+  payload when the primary appears stalled.
+- Do not reintroduce routine mobile real-payload sampling in Normal without a
+  server primary-path fix. On Windows this made the server reply down the slower
+  mobile path and capped speedtest throughput. After removing it, Normal mode
+  reached about 286 Mbps while mobile usage stayed tiny.
+- Small mobile downlink packet counts in Normal are expected and good: they show
+  the path is alive/warm. High mobile traffic in Normal is only expected during
+  real Starlink stalls, failover, or Gaming mode.
+- Windows Gaming maps to `reply-mode:all` and sends every packet on every active
+  path. It is for active games and real-time voice/video, not large downloads.
+- Android Normal/Browsing may have the same mobile sampling issue. If mobile
+  data stays high while Wi-Fi/Starlink is healthy, port the Windows Normal
+  behavior: probes for warmth, payload only on primary stall, or explicit server
+  primary path control.
+
 ### 2026-04-30 - Windows gateway proof and mode-aware replies
 - Windows route-all proof worked: the Windows PC routed normal traffic through AntiJitter and showed the Germany/Hetzner public IP instead of Starlink.
 - Classic Windows Internet Connection Sharing from the AntiJitter adapter to a Microsoft Wi-Fi Direct hotspot worked. A connected iPhone received a `192.168.137.x` address, showed the Hetzner public IP, and caused Windows AntiJitter path counters to rise during speedtest.
 - Modern Windows Mobile hotspot settings may not list AntiJitter as a source adapter. The UI should guide classic adapter Sharing instead.
-- Windows currently requests `reply-mode:all` and behaves like Gaming mode. Add a Windows Mode selector so Gaming maps to `reply-mode:all` and Normal maps to `reply-mode:primary`.
+- Windows originally requested `reply-mode:all` and behaved like Gaming mode; this was corrected by the later Windows Mode selector.
 - Android now sends mode-aware server controls too: Normal/Browsing requests `primary` to save mobile downlink where possible; Gaming requests `all` for redundancy.
 - User-facing copy should use **Normal** instead of **Browsing** going forward. Historical changelog entries and internal code may still say Browsing until the UI/code rename lands.
 - The Germany bonding server now uses two public IPv4s (`178.104.168.177`, `195.201.250.234`) so Windows can pin different physical adapters to different destination hosts.
