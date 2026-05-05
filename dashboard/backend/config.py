@@ -22,11 +22,18 @@ class Settings(BaseSettings):
 
     # Germany VPS peer-management API (runs alongside the bonding server)
     bonding_peer_api_url: str = "http://178.104.168.177:4568"
+    # Optional comma-separated peer APIs for every active POP. When set, the
+    # config API registers each device peer on all POPs so server switching is
+    # instant.
+    bonding_peer_api_urls: str = ""
     bonding_peer_api_token: str = ""
     # Comma-separated public destination IPs/hosts for bonding traffic.
     # Windows needs distinct destination IPs to keep multiple physical
     # adapters from collapsing onto the same best route.
     bonding_hosts: str = "178.104.168.177"
+    # Optional JSON list for selectable POPs, e.g.
+    # [{"id":"norway","name":"Norway","description":"Lowest latency for Norway","hosts":["IP1","IP2"]}]
+    bonding_regions_json: str = ""
 
     class Config:
         env_file = _ENV_FILE

@@ -7,6 +7,7 @@ same peer identity.
 
 import asyncio
 import ipaddress
+import json
 import logging
 import re
 
@@ -35,7 +36,7 @@ MAX_DEVICES_PER_SUBSCRIPTION = 3
 DEFAULT_DEVICE_ID = "default"
 _DEVICE_ID_RE = re.compile(r"[^A-Za-z0-9_.:-]+")
 
-# Peers already registered with Germany during this API process lifetime.
+# Peers already registered with POP peer APIs during this API process lifetime.
 _registered_peers: set[str] = set()
 
 
@@ -59,7 +60,7 @@ async def _generate_keypair() -> tuple[str, str]:
 
 
 async def _register_peer_on_bonding_server(public_key: str, peer_ip: str) -> None:
-    """Call the Germany VPS peer-management API to add the WireGuard peer."""
+    """Call every configured POP peer-management API to add the WireGuard peer."""
     if not settings.bonding_peer_api_token:
         logger.warning("bonding_peer_api_token not set; skipping peer registration")
         return
@@ -70,26 +71,33 @@ async def _register_peer_on_bonding_server(public_key: str, peer_ip: str) -> Non
             status_code=503,
             detail=f"Invalid peer IP for bonding subnet: {peer_ip}",
         )
-    url = f"{settings.bonding_peer_api_url}/peers"
     headers = {"Authorization": f"Bearer {settings.bonding_peer_api_token}"}
     payload = {"public_key": public_key, "peer_ip": bare_ip}
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-    except httpx.HTTPError as e:
-        logger.exception("peer API request failed")
-        raise HTTPException(
-            status_code=503,
-            detail=f"Could not reach bonding server to register peer: {e}",
-        )
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for base_url in _bonding_peer_api_urls():
+            cache_key = f"{base_url}|{public_key}|{bare_ip}"
+            if cache_key in _registered_peers:
+                continue
+            url = f"{base_url}/peers"
+            try:
+                resp = await client.post(url, json=payload, headers=headers)
+            except httpx.HTTPError as e:
+                logger.exception("peer API request failed for %s", base_url)
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Could not reach bonding server to register peer: {e}",
+                )
 
-    if resp.status_code != 200:
-        logger.error("peer API returned %s: %s", resp.status_code, resp.text)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Bonding server rejected peer registration ({resp.status_code})",
-        )
+            if resp.status_code != 200:
+                logger.error(
+                    "peer API %s returned %s: %s", base_url, resp.status_code, resp.text
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Bonding server rejected peer registration ({resp.status_code})",
+                )
+            _registered_peers.add(cache_key)
 
 
 async def _next_peer_ip(db: AsyncSession) -> str:
@@ -161,7 +169,6 @@ async def _device_for_config(
             private_key, public_key = await _generate_keypair()
             peer_ip = await _next_peer_ip(db)
             await _register_peer_on_bonding_server(public_key, peer_ip)
-            _registered_peers.add(public_key)
             device.wireguard_private_key = private_key
             device.wireguard_public_key = public_key
             device.wireguard_peer_ip = peer_ip
@@ -218,7 +225,6 @@ async def _device_for_config(
     peer_ip = await _next_peer_ip(db)
 
     await _register_peer_on_bonding_server(public_key, peer_ip)
-    _registered_peers.add(public_key)
 
     device = WireGuardDevice(
         subscription_id=sub.id,
@@ -247,10 +253,64 @@ def _bonding_hosts() -> list[str]:
     return hosts
 
 
+def _bonding_peer_api_urls() -> list[str]:
+    raw_urls = settings.bonding_peer_api_urls or settings.bonding_peer_api_url
+    urls = [u.strip().rstrip("/") for u in raw_urls.split(",") if u.strip()]
+    if not urls and settings.bonding_peer_api_url:
+        urls = [settings.bonding_peer_api_url.rstrip("/")]
+    return urls
+
+
 def _bonding_servers() -> list[str]:
     # Keep hosts grouped first so a client with multiple physical adapters can
     # pick distinct destination IPs before falling back to alternate ports.
     return [f"{host}:{port}" for host in _bonding_hosts() for port in BONDING_PORTS]
+
+
+def _bonding_regions() -> list[dict]:
+    if settings.bonding_regions_json:
+        try:
+            raw_regions = json.loads(settings.bonding_regions_json)
+        except json.JSONDecodeError:
+            logger.exception("invalid BONDING_REGIONS_JSON")
+            raw_regions = []
+        regions = []
+        if isinstance(raw_regions, list):
+            for raw in raw_regions:
+                if not isinstance(raw, dict):
+                    continue
+                region_id = str(raw.get("id", "")).strip().lower()
+                name = str(raw.get("name", "")).strip()
+                description = str(raw.get("description", "")).strip()
+                hosts_raw = raw.get("hosts", [])
+                if isinstance(hosts_raw, str):
+                    hosts_raw = [hosts_raw]
+                hosts = [str(h).strip() for h in hosts_raw if str(h).strip()]
+                ports = raw.get("ports", BONDING_PORTS)
+                if not isinstance(ports, list):
+                    ports = BONDING_PORTS
+                ports = [int(p) for p in ports if str(p).isdigit()]
+                if not region_id or not name or not hosts or not ports:
+                    continue
+                regions.append(
+                    {
+                        "id": region_id,
+                        "name": name,
+                        "description": description,
+                        "servers": [f"{host}:{port}" for host in hosts for port in ports],
+                    }
+                )
+        if regions:
+            return regions
+
+    return [
+        {
+            "id": "germany",
+            "name": "Germany",
+            "description": "Central EU baseline",
+            "servers": _bonding_servers(),
+        }
+    ]
 
 
 @router.get("")
@@ -274,11 +334,9 @@ async def get_config(
     device_id = _normalize_device_id(x_antijitter_device_id)
     device = await _device_for_config(db, sub, device_id, x_antijitter_device_name)
 
-    if device.wireguard_public_key not in _registered_peers:
-        await _register_peer_on_bonding_server(
-            device.wireguard_public_key, device.wireguard_peer_ip
-        )
-        _registered_peers.add(device.wireguard_public_key)
+    await _register_peer_on_bonding_server(
+        device.wireguard_public_key, device.wireguard_peer_ip
+    )
 
     return {
         "wireguard": {
@@ -289,5 +347,6 @@ async def get_config(
             "allowed_ips": ["10.10.0.0/24"],
         },
         "bonding_servers": _bonding_servers(),
+        "bonding_regions": _bonding_regions(),
         "data_limit_mb": DEFAULT_DATA_LIMIT_MB,
     }

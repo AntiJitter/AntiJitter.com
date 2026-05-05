@@ -16,7 +16,16 @@ import (
 type AntiJitterConfig struct {
 	WireGuard      WireGuardConfig `json:"wireguard"`
 	BondingServers []string        `json:"bonding_servers"`
+	BondingRegions []BondingRegion `json:"bonding_regions"`
 	DataLimitMB    int64           `json:"data_limit_mb"`
+}
+
+// BondingRegion describes a selectable AntiJitter POP/location.
+type BondingRegion struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Servers     []string `json:"servers"`
 }
 
 // WireGuardConfig holds the tunnel parameters.

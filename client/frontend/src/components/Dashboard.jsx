@@ -9,6 +9,15 @@ const EMPTY_STATUS = {
   data_limit_mb: 50000,
   dev_route_all: true,
   mode: 'normal',
+  selected_region_id: 'germany',
+  server_regions: [
+    {
+      id: 'germany',
+      name: 'Germany',
+      description: 'Central EU baseline',
+      servers: []
+    }
+  ],
   starlink: {
     detected: false,
     latency_ms: 0,
@@ -132,6 +141,11 @@ export default function Dashboard({ onLogout }) {
       setLatencyHistory(h => appendLatencyHistory(h, s.paths))
     }).catch(() => {})
 
+    callGo('RefreshServerRegions').then(s => {
+      if (!s) return
+      setStatus(prev => ({ ...prev, ...s, paths: Array.isArray(s.paths) ? s.paths : prev.paths ?? [] }))
+    }).catch(() => {})
+
     onEvent('status', s => {
       setStatus(prev => ({ ...prev, ...s, paths: Array.isArray(s.paths) ? s.paths : [] }))
       setLatencyHistory(h => appendLatencyHistory(h, s.paths))
@@ -142,7 +156,9 @@ export default function Dashboard({ onLogout }) {
         setStatus(s => ({
           ...EMPTY_STATUS,
           dev_route_all: s.dev_route_all ?? true,
-          mode: s.mode ?? 'normal'
+          mode: s.mode ?? 'normal',
+          selected_region_id: s.selected_region_id ?? 'germany',
+          server_regions: Array.isArray(s.server_regions) ? s.server_regions : EMPTY_STATUS.server_regions
         }))
         setLatencyHistory({})
       }
@@ -196,10 +212,28 @@ export default function Dashboard({ onLogout }) {
     }
   }, [status.active, status.mode, connecting, toggling])
 
+  const setServerRegion = useCallback(async (regionID) => {
+    if (status.active || connecting || toggling) return
+    const previousRegion = status.selected_region_id ?? 'germany'
+    setError('')
+    setStatus(s => ({ ...s, selected_region_id: regionID }))
+    try {
+      await callGo('SetServerRegion', regionID)
+    } catch (err) {
+      setStatus(s => ({ ...s, selected_region_id: previousRegion }))
+      setError(typeof err === 'string' ? err : 'Failed to change server location')
+    }
+  }, [status.active, status.selected_region_id, connecting, toggling])
+
   const isOn = status.active
   const isBusy = toggling || connecting
   const mode = status.mode ?? 'normal'
   const modeInfo = MODES[mode] ?? MODES.normal
+  const serverRegions = Array.isArray(status.server_regions) && status.server_regions.length > 0
+    ? status.server_regions
+    : EMPTY_STATUS.server_regions
+  const selectedRegionID = status.selected_region_id ?? serverRegions[0]?.id ?? 'germany'
+  const selectedRegion = serverRegions.find(region => region.id === selectedRegionID) ?? serverRegions[0]
   const pathCount = status.paths?.length ?? 0
   const dataUsed = status.data_used_mb ?? 0
   const dataLimit = status.data_limit_mb ?? 50000
@@ -261,6 +295,23 @@ export default function Dashboard({ onLogout }) {
             <div className={`status-dot ${isOn ? 'on' : ''} ${isBusy ? 'busy' : ''}`} />
           </div>
 
+          <div className="server-row">
+            <span>Server</span>
+            <div className={`server-pills ${isOn || isBusy ? 'locked' : ''}`}>
+              {serverRegions.map(region => (
+                <button
+                  key={region.id}
+                  className={`server-pill ${selectedRegionID === region.id ? 'selected' : ''}`}
+                  onClick={() => setServerRegion(region.id)}
+                  disabled={isOn || isBusy}
+                  title={region.description || `${region.servers?.length ?? 0} bonding endpoints`}
+                >
+                  {region.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {isOn && (
             <div className="compact-latency">
               <span>{mode === 'gaming' ? 'Bonded latency' : 'Best path latency'}</span>
@@ -299,7 +350,9 @@ export default function Dashboard({ onLogout }) {
           {error && <div className="panel-error">{error}</div>}
 
           <div className="connection-sub">
-            {isOn ? `${pathCount} path${pathCount !== 1 ? 's' : ''} bonded in ${modeInfo.label} mode` : modeInfo.summary}
+            {isOn
+              ? `${pathCount} path${pathCount !== 1 ? 's' : ''} bonded through ${selectedRegion?.name ?? 'selected server'}`
+              : modeInfo.summary}
           </div>
           <div className={`mode-copy ${isOn ? 'active-chart' : ''}`}>
             {isOn && status.paths?.length > 0 ? (
