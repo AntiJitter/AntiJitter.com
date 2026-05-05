@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 # Bonding system uses 10.10.0.0/24 (Germany VPS WireGuard subnet).
 _SUBNET = ipaddress.IPv4Network("10.10.0.0/24")
 _IP_POOL = [str(ip) for ip in list(_SUBNET.hosts())[1:]]  # .2 -> .254
+_IP_POOL_SET = set(_IP_POOL)
 
 BONDING_PORTS = [4567, 443]
 DEFAULT_DATA_LIMIT_MB = 50_000  # 50 GB
@@ -63,7 +64,12 @@ async def _register_peer_on_bonding_server(public_key: str, peer_ip: str) -> Non
         logger.warning("bonding_peer_api_token not set; skipping peer registration")
         return
 
-    bare_ip = peer_ip.split("/", 1)[0]
+    bare_ip = _bare_peer_ip(peer_ip)
+    if not bare_ip or bare_ip not in _IP_POOL_SET:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Invalid peer IP for bonding subnet: {peer_ip}",
+        )
     url = f"{settings.bonding_peer_api_url}/peers"
     headers = {"Authorization": f"Bearer {settings.bonding_peer_api_token}"}
     payload = {"public_key": public_key, "peer_ip": bare_ip}
@@ -89,10 +95,18 @@ async def _register_peer_on_bonding_server(public_key: str, peer_ip: str) -> Non
 async def _next_peer_ip(db: AsyncSession) -> str:
     """Allocate the next available IP from the 10.10.0.0/24 pool."""
     result = await db.execute(select(Subscription.wireguard_peer_ip))
-    used = {row[0] for row in result.all() if row[0]}
+    used = {
+        ip
+        for row in result.all()
+        if (ip := _bare_peer_ip(row[0])) and ip in _IP_POOL_SET
+    }
 
     result = await db.execute(select(WireGuardDevice.wireguard_peer_ip))
-    used.update(row[0] for row in result.all() if row[0])
+    used.update(
+        ip
+        for row in result.all()
+        if (ip := _bare_peer_ip(row[0])) and ip in _IP_POOL_SET
+    )
 
     for ip in _IP_POOL:
         if ip not in used:
@@ -104,6 +118,22 @@ def _normalize_device_id(device_id: str | None) -> str:
     raw = (device_id or DEFAULT_DEVICE_ID).strip() or DEFAULT_DEVICE_ID
     normalized = _DEVICE_ID_RE.sub("-", raw)[:128].strip("-")
     return normalized or DEFAULT_DEVICE_ID
+
+
+def _bare_peer_ip(peer_ip: str | None) -> str | None:
+    if not peer_ip:
+        return None
+    try:
+        if "/" in peer_ip:
+            return str(ipaddress.ip_interface(peer_ip.strip()).ip)
+        return str(ipaddress.ip_address(peer_ip.strip()))
+    except ValueError:
+        return None
+
+
+def _peer_ip_in_pool(peer_ip: str | None) -> bool:
+    bare_ip = _bare_peer_ip(peer_ip)
+    return bool(bare_ip and bare_ip in _IP_POOL_SET)
 
 
 async def _device_for_config(
@@ -122,9 +152,34 @@ async def _device_for_config(
     clean_name = device_name[:128] if device_name else None
 
     if device:
+        changed = False
         if clean_name and device.device_name != clean_name:
             device.device_name = clean_name
+            changed = True
+        if not _peer_ip_in_pool(device.wireguard_peer_ip):
+            old_ip = device.wireguard_peer_ip
+            private_key, public_key = await _generate_keypair()
+            peer_ip = await _next_peer_ip(db)
+            await _register_peer_on_bonding_server(public_key, peer_ip)
+            _registered_peers.add(public_key)
+            device.wireguard_private_key = private_key
+            device.wireguard_public_key = public_key
+            device.wireguard_peer_ip = peer_ip
+            changed = True
+            if sub.wireguard_peer_ip == old_ip:
+                sub.wireguard_private_key = private_key
+                sub.wireguard_public_key = public_key
+                sub.wireguard_peer_ip = peer_ip
+            logger.warning(
+                "repaired invalid WireGuard device peer IP for subscription=%s device_id=%s old_ip=%s new_ip=%s",
+                sub.id,
+                device_id,
+                old_ip,
+                peer_ip,
+            )
+        if changed:
             await db.commit()
+            await db.refresh(device)
         return device
 
     result = await db.execute(
@@ -144,6 +199,7 @@ async def _device_for_config(
         and sub.wireguard_private_key
         and sub.wireguard_public_key
         and sub.wireguard_peer_ip
+        and _peer_ip_in_pool(sub.wireguard_peer_ip)
     ):
         device = WireGuardDevice(
             subscription_id=sub.id,
@@ -174,7 +230,7 @@ async def _device_for_config(
     )
     db.add(device)
 
-    if not sub.wireguard_private_key:
+    if not sub.wireguard_private_key or not _peer_ip_in_pool(sub.wireguard_peer_ip):
         sub.wireguard_private_key = private_key
         sub.wireguard_public_key = public_key
         sub.wireguard_peer_ip = peer_ip

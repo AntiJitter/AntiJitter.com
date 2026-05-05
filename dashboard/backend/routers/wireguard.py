@@ -9,13 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import get_current_user
 from ..config import settings
 from ..database import get_db
-from ..models import Subscription, User
+from ..models import Subscription, User, WireGuardDevice
 
 router = APIRouter(prefix="/api/wireguard", tags=["wireguard"])
 
-_SUBNET = ipaddress.IPv4Network("10.8.0.0/24")
-# .1 is the server; hand out .2 → .254
+_SUBNET = ipaddress.IPv4Network("10.10.0.0/24")
+# .1 is the server; hand out .2 -> .254
 _IP_POOL = [str(ip) for ip in list(_SUBNET.hosts())[1:]]
+_IP_POOL_SET = set(_IP_POOL)
 
 
 async def _run(cmd: str) -> str:
@@ -38,11 +39,32 @@ async def _generate_keypair() -> tuple[str, str]:
 
 async def _next_ip(db: AsyncSession) -> str:
     result = await db.execute(select(Subscription.wireguard_peer_ip))
-    used = {row[0] for row in result.all() if row[0]}
+    used = {
+        ip
+        for row in result.all()
+        if (ip := _bare_peer_ip(row[0])) and ip in _IP_POOL_SET
+    }
+    result = await db.execute(select(WireGuardDevice.wireguard_peer_ip))
+    used.update(
+        ip
+        for row in result.all()
+        if (ip := _bare_peer_ip(row[0])) and ip in _IP_POOL_SET
+    )
     for ip in _IP_POOL:
         if ip not in used:
             return ip
     raise HTTPException(status_code=503, detail="IP pool exhausted")
+
+
+def _bare_peer_ip(peer_ip: str | None) -> str | None:
+    if not peer_ip:
+        return None
+    try:
+        if "/" in peer_ip:
+            return str(ipaddress.ip_interface(peer_ip.strip()).ip)
+        return str(ipaddress.ip_address(peer_ip.strip()))
+    except ValueError:
+        return None
 
 
 async def _active_sub(user: User, db: AsyncSession) -> Subscription:
