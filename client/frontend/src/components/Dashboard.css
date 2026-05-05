@@ -132,6 +132,59 @@
     linear-gradient(180deg, rgba(18, 18, 18, 0.98), rgba(13, 13, 14, 0.98));
 }
 
+.server-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.server-row > span {
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.server-pills {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.server-pills::-webkit-scrollbar {
+  display: none;
+}
+
+.server-pill {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #0b0b0b;
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.server-pill.selected {
+  color: #020202;
+  border-color: var(--bonded);
+  background: var(--bonded);
+}
+
+.server-pill:disabled {
+  cursor: default;
+}
+
+.server-pills.locked {
+  opacity: 0.72;
+}
+
 .connection-card.active {
   border-color: var(--border);
   box-shadow: none;

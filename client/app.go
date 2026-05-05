@@ -33,14 +33,16 @@ const (
 
 // Status is sent to the frontend on every tick.
 type Status struct {
-	Active      bool           `json:"active"`
-	Paths       []PathStat     `json:"paths"`
-	DataUsedMB  float64        `json:"data_used_mb"`
-	DataLimitMB int64          `json:"data_limit_mb"`
-	Connecting  bool           `json:"connecting"`
-	DevRouteAll bool           `json:"dev_route_all"`
-	Mode        string         `json:"mode"`
-	Starlink    StarlinkStatus `json:"starlink"`
+	Active           bool                `json:"active"`
+	Paths            []PathStat          `json:"paths"`
+	DataUsedMB       float64             `json:"data_used_mb"`
+	DataLimitMB      int64               `json:"data_limit_mb"`
+	Connecting       bool                `json:"connecting"`
+	DevRouteAll      bool                `json:"dev_route_all"`
+	Mode             string              `json:"mode"`
+	SelectedRegionID string              `json:"selected_region_id"`
+	ServerRegions    []api.BondingRegion `json:"server_regions"`
+	Starlink         StarlinkStatus      `json:"starlink"`
 }
 
 type PathStat struct {
@@ -74,6 +76,8 @@ type App struct {
 	token                   string
 	devRouteAll             bool
 	mode                    string
+	selectedRegionID        string
+	serverRegions           []api.BondingRegion
 	starlink                StarlinkStatus
 	cancelStats             context.CancelFunc
 
@@ -81,15 +85,25 @@ type App struct {
 }
 
 func NewApp() *App {
-	return &App{devRouteAll: true, mode: ModeNormal}
+	return &App{
+		devRouteAll:      true,
+		mode:             ModeNormal,
+		selectedRegionID: "germany",
+		serverRegions:    defaultServerRegions(nil),
+	}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.setupFileLogging()
 	token, _ := a.loadToken()
+	selectedRegionID, _ := a.loadSelectedRegion()
+	if selectedRegionID == "" {
+		selectedRegionID = "germany"
+	}
 	a.mu.Lock()
 	a.token = token
+	a.selectedRegionID = selectedRegionID
 	a.mu.Unlock()
 	go a.monitorStarlink(ctx)
 }
@@ -233,13 +247,83 @@ func (a *App) SetMode(mode string) error {
 	return nil
 }
 
+// SetServerRegion selects the AntiJitter POP/location for the next tunnel start.
+func (a *App) SetServerRegion(regionID string) error {
+	regionID = strings.ToLower(strings.TrimSpace(regionID))
+	if regionID == "" {
+		return fmt.Errorf("server location is required")
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.active {
+		return fmt.Errorf("stop AntiJitter before changing server location")
+	}
+	if _, ok := findRegion(a.serverRegions, regionID); !ok {
+		return fmt.Errorf("unknown server location %q", regionID)
+	}
+	a.selectedRegionID = regionID
+	a.saveSelectedRegion(regionID)
+	log.Printf("Windows server region set to %s", regionID)
+	return nil
+}
+
+// RefreshServerRegions asks the API for the current POP list so the selector can
+// show newly deployed regions before the user starts the tunnel.
+func (a *App) RefreshServerRegions() (Status, error) {
+	a.mu.RLock()
+	token := a.token
+	deviceID := ""
+	a.mu.RUnlock()
+	if token == "" {
+		a.mu.RLock()
+		defer a.mu.RUnlock()
+		return a.buildStatus(), nil
+	}
+
+	var err error
+	deviceID, err = a.deviceID()
+	if err != nil {
+		return Status{}, fmt.Errorf("device id: %w", err)
+	}
+	cfg, err := api.New("https://app.antijitter.com", token, deviceID).FetchConfig()
+	if err != nil {
+		return Status{}, fmt.Errorf("fetch server locations: %w", err)
+	}
+
+	a.mu.Lock()
+	a.serverRegions = regionsFromConfig(cfg)
+	if _, ok := findRegion(a.serverRegions, a.selectedRegionID); !ok {
+		a.selectedRegionID = firstRegionID(a.serverRegions)
+		a.saveSelectedRegion(a.selectedRegionID)
+	}
+	status := a.buildStatus()
+	a.mu.Unlock()
+	return status, nil
+}
+
 // buildStatus reads current state; caller must hold at least RLock.
 func (a *App) buildStatus() Status {
 	mode := a.mode
 	if mode == "" {
 		mode = ModeNormal
 	}
-	s := Status{Active: a.active, DevRouteAll: a.devRouteAll, Mode: mode, Starlink: a.starlink}
+	regions := append([]api.BondingRegion(nil), a.serverRegions...)
+	if len(regions) == 0 {
+		regions = defaultServerRegions(nil)
+	}
+	selectedRegionID := a.selectedRegionID
+	if selectedRegionID == "" {
+		selectedRegionID = firstRegionID(regions)
+	}
+	s := Status{
+		Active:           a.active,
+		DevRouteAll:      a.devRouteAll,
+		Mode:             mode,
+		SelectedRegionID: selectedRegionID,
+		ServerRegions:    regions,
+		Starlink:         a.starlink,
+	}
 	if a.bondClient != nil {
 		for _, p := range a.bondClient.Stats() {
 			s.Paths = append(s.Paths, PathStat{
@@ -265,6 +349,7 @@ func (a *App) startGameMode() error {
 	token := a.token
 	devRouteAll := a.devRouteAll
 	mode := a.mode
+	selectedRegionID := a.selectedRegionID
 	a.mu.RUnlock()
 	if mode == "" {
 		mode = ModeNormal
@@ -291,6 +376,19 @@ func (a *App) startGameMode() error {
 	log.Printf("Config: bonding_servers=%v api_allowed_ips=%v data_limit_mb=%d",
 		cfg.BondingServers, cfg.WireGuard.AllowedIPs, cfg.DataLimitMB)
 	log.Printf("Windows mode: %s", mode)
+	regions := regionsFromConfig(cfg)
+	selectedRegion, ok := findRegion(regions, selectedRegionID)
+	if !ok {
+		selectedRegion = regions[0]
+		selectedRegionID = selectedRegion.ID
+	}
+	cfg.BondingServers = append([]string(nil), selectedRegion.Servers...)
+	a.mu.Lock()
+	a.serverRegions = regions
+	a.selectedRegionID = selectedRegionID
+	a.mu.Unlock()
+	log.Printf("Windows server region: id=%s name=%q servers=%v",
+		selectedRegion.ID, selectedRegion.Name, cfg.BondingServers)
 
 	if devRouteAll {
 		cfg.WireGuard.AllowedIPs = []string{"0.0.0.0/0"}
@@ -504,6 +602,11 @@ func (a *App) tokenPath() string {
 	return filepath.Join(dir, "AntiJitter", "token.txt")
 }
 
+func (a *App) selectedRegionPath() string {
+	dir, _ := os.UserConfigDir()
+	return filepath.Join(dir, "AntiJitter", "server_region.txt")
+}
+
 func (a *App) deviceIDPath() string {
 	dir, _ := os.UserConfigDir()
 	return filepath.Join(dir, "AntiJitter", "device_id.txt")
@@ -555,10 +658,92 @@ func (a *App) saveToken(token string) {
 	os.WriteFile(path, []byte(token), 0600)
 }
 
+func (a *App) saveSelectedRegion(regionID string) {
+	path := a.selectedRegionPath()
+	os.MkdirAll(filepath.Dir(path), 0700)
+	os.WriteFile(path, []byte(regionID), 0600)
+}
+
 func (a *App) loadToken() (string, error) {
 	data, err := os.ReadFile(a.tokenPath())
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(data)), nil
+}
+
+func (a *App) loadSelectedRegion() (string, error) {
+	data, err := os.ReadFile(a.selectedRegionPath())
+	if err != nil {
+		return "", err
+	}
+	return strings.ToLower(strings.TrimSpace(string(data))), nil
+}
+
+func regionsFromConfig(cfg *api.AntiJitterConfig) []api.BondingRegion {
+	regions := make([]api.BondingRegion, 0, len(cfg.BondingRegions))
+	for _, region := range cfg.BondingRegions {
+		region.ID = strings.ToLower(strings.TrimSpace(region.ID))
+		region.Name = strings.TrimSpace(region.Name)
+		region.Description = strings.TrimSpace(region.Description)
+		servers := cleanServers(region.Servers)
+		if region.ID == "" || region.Name == "" || len(servers) == 0 {
+			continue
+		}
+		region.Servers = servers
+		regions = append(regions, region)
+	}
+	if len(regions) > 0 {
+		return regions
+	}
+	return defaultServerRegions(cfg.BondingServers)
+}
+
+func defaultServerRegions(servers []string) []api.BondingRegion {
+	servers = cleanServers(servers)
+	if len(servers) == 0 {
+		servers = []string{
+			"178.104.168.177:4567",
+			"178.104.168.177:443",
+			"195.201.250.234:4567",
+			"195.201.250.234:443",
+		}
+	}
+	return []api.BondingRegion{{
+		ID:          "germany",
+		Name:        "Germany",
+		Description: "Central EU baseline",
+		Servers:     servers,
+	}}
+}
+
+func cleanServers(servers []string) []string {
+	out := make([]string, 0, len(servers))
+	seen := map[string]bool{}
+	for _, server := range servers {
+		server = strings.TrimSpace(server)
+		if server == "" || seen[server] {
+			continue
+		}
+		seen[server] = true
+		out = append(out, server)
+	}
+	return out
+}
+
+func findRegion(regions []api.BondingRegion, regionID string) (api.BondingRegion, bool) {
+	regionID = strings.ToLower(strings.TrimSpace(regionID))
+	for _, region := range regions {
+		if strings.ToLower(strings.TrimSpace(region.ID)) == regionID && len(region.Servers) > 0 {
+			return region, true
+		}
+	}
+	return api.BondingRegion{}, false
+}
+
+func firstRegionID(regions []api.BondingRegion) string {
+	if len(regions) == 0 {
+		return "germany"
+	}
+	return regions[0].ID
 }
