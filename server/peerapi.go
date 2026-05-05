@@ -6,7 +6,6 @@
 //
 // Auth: shared Bearer token in the ADD_PEER_TOKEN env var. Firewall this
 // port to the Finland VPS IP in production.
-
 package main
 
 import (
@@ -25,7 +24,7 @@ const peerAPIDefaultPort = 4568
 
 var (
 	wgKeyRe    = regexp.MustCompile(`^[A-Za-z0-9+/]{42}[A-Za-z0-9+/=]{2}$`)
-	wgPeerIPRe = regexp.MustCompile(`^10\.10\.0\.(?:[1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4])$`)
+	wgPeerIPRe = regexp.MustCompile(`^10\.10\.0\.(?:[2-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4])$`)
 )
 
 type addPeerRequest struct {
@@ -63,7 +62,6 @@ func handleAddPeer(w http.ResponseWriter, r *http.Request, wgInterface, authToke
 		return
 	}
 
-	// Bearer token check
 	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if authToken == "" || got != authToken {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -76,27 +74,23 @@ func handleAddPeer(w http.ResponseWriter, r *http.Request, wgInterface, authToke
 		return
 	}
 
-	// Validate inputs — these go on a shell command line, so be strict
+	// Validate inputs. These values become exec arguments, so keep validation strict.
 	if !wgKeyRe.MatchString(req.PublicKey) {
 		http.Error(w, "invalid public_key format", http.StatusBadRequest)
 		return
 	}
-	if !wgPeerIPRe.MatchString(req.PeerIP) {
-		http.Error(w, "invalid peer_ip (must be 10.10.0.X)", http.StatusBadRequest)
-		return
-	}
-	if net.ParseIP(req.PeerIP) == nil {
-		http.Error(w, "invalid peer_ip", http.StatusBadRequest)
+	peerIP, err := normalizePeerIP(req.PeerIP)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Run: wg set <iface> peer <pubkey> allowed-ips <ip>/32 persistent-keepalive 25
 	cmd := exec.Command("wg", "set", wgInterface,
 		"peer", req.PublicKey,
-		"allowed-ips", req.PeerIP+"/32",
+		"allowed-ips", peerIP+"/32",
 		"persistent-keepalive", "25")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("wg set failed: %v — %s", err, strings.TrimSpace(string(out)))
+		log.Printf("wg set failed: %v - %s", err, strings.TrimSpace(string(out)))
 		respondJSON(w, http.StatusInternalServerError, addPeerResponse{
 			OK:      false,
 			Message: fmt.Sprintf("wg set failed: %s", strings.TrimSpace(string(out))),
@@ -104,14 +98,35 @@ func handleAddPeer(w http.ResponseWriter, r *http.Request, wgInterface, authToke
 		return
 	}
 
-	// Persist so the peer survives a reboot
+	// Persist so the peer survives a reboot. The live peer was already added.
 	if out, err := exec.Command("wg-quick", "save", wgInterface).CombinedOutput(); err != nil {
-		log.Printf("wg-quick save failed: %v — %s", err, strings.TrimSpace(string(out)))
-		// Don't fail the request — peer is live, just not persisted
+		log.Printf("wg-quick save failed: %v - %s", err, strings.TrimSpace(string(out)))
 	}
 
-	log.Printf("Peer added: %s → %s/32", req.PublicKey[:8]+"...", req.PeerIP)
+	log.Printf("Peer added: %s -> %s/32", req.PublicKey[:8]+"...", peerIP)
 	respondJSON(w, http.StatusOK, addPeerResponse{OK: true})
+}
+
+func normalizePeerIP(raw string) (string, error) {
+	peerIP := strings.TrimSpace(raw)
+	if strings.Contains(peerIP, "/") {
+		ip, ipNet, err := net.ParseCIDR(peerIP)
+		if err != nil {
+			return "", fmt.Errorf("invalid peer_ip CIDR")
+		}
+		ones, bits := ipNet.Mask.Size()
+		if bits != 32 || (ones != 24 && ones != 32) {
+			return "", fmt.Errorf("invalid peer_ip CIDR mask (must be /24 or /32)")
+		}
+		peerIP = ip.String()
+	}
+	if !wgPeerIPRe.MatchString(peerIP) {
+		return "", fmt.Errorf("invalid peer_ip (must be 10.10.0.X)")
+	}
+	if net.ParseIP(peerIP) == nil {
+		return "", fmt.Errorf("invalid peer_ip")
+	}
+	return peerIP, nil
 }
 
 func respondJSON(w http.ResponseWriter, status int, body any) {

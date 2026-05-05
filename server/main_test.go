@@ -68,6 +68,33 @@ func TestParseReplyModeControl(t *testing.T) {
 	}
 }
 
+func TestNormalizePeerIP(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "10.10.0.2", want: "10.10.0.2"},
+		{in: "10.10.0.2/24", want: "10.10.0.2"},
+		{in: " 10.10.0.254/32 ", want: "10.10.0.254"},
+	}
+
+	for _, tt := range tests {
+		got, err := normalizePeerIP(tt.in)
+		if err != nil {
+			t.Fatalf("normalizePeerIP(%q) unexpected error: %v", tt.in, err)
+		}
+		if got != tt.want {
+			t.Fatalf("normalizePeerIP(%q)=%q want %q", tt.in, got, tt.want)
+		}
+	}
+
+	for _, in := range []string{"10.10.0.1", "10.10.0.255", "10.10.0.2/16", "192.168.1.2"} {
+		if got, err := normalizePeerIP(in); err == nil {
+			t.Fatalf("normalizePeerIP(%q)=%q, want error", in, got)
+		}
+	}
+}
+
 func TestWireGuardIndexClientIsolation(t *testing.T) {
 	registry := &clientRegistry{}
 	pathA := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 10), Port: 1000}
