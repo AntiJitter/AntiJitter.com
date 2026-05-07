@@ -35,6 +35,11 @@ const MODES = {
     label: 'Gaming',
     summary: 'Every packet is sent over Starlink and Mobile data.',
     detail: 'Best for gaming and real-time voice and video calls. Uses more Mobile data.'
+  },
+  gamelane4g: {
+    label: 'GameLane 4G',
+    summary: 'Xbox game UDP direct over 4G. Starlink stays default.',
+    detail: 'Dry-run prototype: classifies gameplay-like UDP without using the VPS.'
   }
 }
 
@@ -229,6 +234,7 @@ export default function Dashboard({ onLogout }) {
   const isBusy = toggling || connecting
   const mode = status.mode ?? 'normal'
   const modeInfo = MODES[mode] ?? MODES.normal
+  const isGameLane = mode === 'gamelane4g'
   const serverRegions = Array.isArray(status.server_regions) && status.server_regions.length > 0
     ? status.server_regions
     : EMPTY_STATUS.server_regions
@@ -250,18 +256,22 @@ export default function Dashboard({ onLogout }) {
   const statusLabel = connecting ? 'Connecting' : isOn ? 'Connected' : 'Idle'
   const connectionTitle = connecting
     ? 'Connecting'
-    : isOn
+    : isOn && isGameLane
+      ? 'GameLane 4G Active'
+      : isOn
       ? 'AntiJitter Active'
       : 'AntiJitter Off'
   const progressTitle = connecting
-    ? 'Starting bonded tunnel'
+    ? isGameLane ? 'Starting GameLane 4G' : 'Starting bonded tunnel'
     : toggling && isOn
       ? 'Stopping tunnel'
       : toggling
         ? 'Preparing connection'
         : ''
   const progressDetail = connecting
-    ? 'Detecting adapters, pinning routes, opening bonding paths, and starting WireGuard. This can take a little while on Windows.'
+    ? isGameLane
+      ? 'Detecting gateway adapters and starting the safe dry-run classifier. Active packet steering requires the upcoming WinDivert capture layer.'
+      : 'Detecting adapters, pinning routes, opening bonding paths, and starting WireGuard. This can take a little while on Windows.'
     : toggling && isOn
       ? 'Removing tunnel routes and closing bonding sockets.'
       : toggling
@@ -295,7 +305,7 @@ export default function Dashboard({ onLogout }) {
             <div className={`status-dot ${isOn ? 'on' : ''} ${isBusy ? 'busy' : ''}`} />
           </div>
 
-          <div className="server-row">
+          {!isGameLane && <div className="server-row">
             <span>Server</span>
             <div className={`server-pills ${isOn || isBusy ? 'locked' : ''}`}>
               {serverRegions.map(region => (
@@ -310,9 +320,9 @@ export default function Dashboard({ onLogout }) {
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
 
-          {isOn && (
+          {isOn && !isGameLane && (
             <div className="compact-latency">
               <span>{mode === 'gaming' ? 'Bonded latency' : 'Best path latency'}</span>
               <strong className={`latency-value ${latencyClass(bestLatency)}`}>{bestLatency === null ? '--' : bestLatency.toFixed(0)}<em>ms</em></strong>
@@ -350,7 +360,9 @@ export default function Dashboard({ onLogout }) {
           {error && <div className="panel-error">{error}</div>}
 
           <div className="connection-sub">
-            {isOn
+            {isOn && isGameLane
+              ? (status.gamelane?.message ?? 'GameLane 4G dry-run classifier active')
+              : isOn
               ? `${pathCount} path${pathCount !== 1 ? 's' : ''} bonded through ${selectedRegion?.name ?? 'selected server'}`
               : modeInfo.summary}
           </div>
@@ -413,7 +425,50 @@ export default function Dashboard({ onLogout }) {
           </>
         )}
 
-        {isOn && (
+        {(isOn && isGameLane) && (
+          <section className="gamelane-card">
+            <div className="section-label-row">
+              <span className="section-label">GameLane 4G</span>
+              <span className="section-meta">{status.gamelane?.dry_run ? 'dry-run' : 'active'}</span>
+            </div>
+            <div className="gamelane-grid">
+              <div>
+                <span>Capture</span>
+                <strong>{status.gamelane?.capture_available ? 'WinDivert active' : 'Driver missing'}</strong>
+              </div>
+              <div>
+                <span>Active game flows</span>
+                <strong>{(status.gamelane?.metrics?.active_game_flows ?? 0).toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Starlink</span>
+                <strong>{status.gamelane?.starlink_interface || '--'}</strong>
+              </div>
+              <div>
+                <span>Mobile data</span>
+                <strong>{status.gamelane?.mobile_interface || '--'}</strong>
+              </div>
+              <div>
+                <span>Candidate flows</span>
+                <strong>{(status.gamelane?.metrics?.candidate_flows ?? 0).toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Promoted to 4G</span>
+                <strong>{(status.gamelane?.metrics?.promoted_4g_flows ?? 0).toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Rejected UDP/443</span>
+                <strong>{(status.gamelane?.metrics?.rejected_udp443_flows ?? 0).toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Rejected large UDP</span>
+                <strong>{(status.gamelane?.metrics?.rejected_large_udp_flows ?? 0).toLocaleString()}</strong>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {isOn && !isGameLane && (
           <section className="stats-grid">
             <div className="stat-card">
               <div className="section-label">Path traffic</div>

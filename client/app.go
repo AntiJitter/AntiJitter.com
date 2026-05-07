@@ -20,6 +20,7 @@ import (
 
 	"antijitter.com/client/api"
 	"antijitter.com/client/bonding"
+	"antijitter.com/client/gamelane"
 	"antijitter.com/client/iface"
 	"antijitter.com/client/tunnel"
 )
@@ -27,8 +28,9 @@ import (
 const bondListenPort = 51821
 
 const (
-	ModeNormal = "normal"
-	ModeGaming = "gaming"
+	ModeNormal     = "normal"
+	ModeGaming     = "gaming"
+	ModeGameLane4G = "gamelane4g"
 )
 
 // Status is sent to the frontend on every tick.
@@ -43,6 +45,7 @@ type Status struct {
 	SelectedRegionID string              `json:"selected_region_id"`
 	ServerRegions    []api.BondingRegion `json:"server_regions"`
 	Starlink         StarlinkStatus      `json:"starlink"`
+	GameLane         *gamelane.Status    `json:"gamelane,omitempty"`
 }
 
 type PathStat struct {
@@ -70,6 +73,7 @@ type App struct {
 	mu                      sync.RWMutex
 	active                  bool
 	bondClient              *bonding.Client
+	gameLane                *gamelane.Engine
 	wgTunnel                *tunnel.Tunnel
 	hostRoutes              []iface.HostRoute
 	restoreHostRouteMetrics func()
@@ -233,7 +237,7 @@ func (a *App) SetDevRouteAll(enabled bool) error {
 // SetMode selects the Windows bonding strategy for the next tunnel start.
 func (a *App) SetMode(mode string) error {
 	mode = strings.ToLower(strings.TrimSpace(mode))
-	if mode != ModeNormal && mode != ModeGaming {
+	if mode != ModeNormal && mode != ModeGaming && mode != ModeGameLane4G {
 		return fmt.Errorf("unknown mode %q", mode)
 	}
 
@@ -341,6 +345,10 @@ func (a *App) buildStatus() Status {
 		s.DataUsedMB = float64(a.bondClient.DataUsed4G.Load()) / (1024 * 1024)
 		s.DataLimitMB = a.bondClient.GetDataLimitMB()
 	}
+	if a.gameLane != nil {
+		status := a.gameLane.Status()
+		s.GameLane = &status
+	}
 	return s
 }
 
@@ -357,6 +365,10 @@ func (a *App) startGameMode() error {
 
 	if token == "" {
 		return fmt.Errorf("not logged in")
+	}
+
+	if mode == ModeGameLane4G {
+		return a.startGameLane4G()
 	}
 
 	// Signal UI: connecting
@@ -510,16 +522,64 @@ func (a *App) startGameMode() error {
 	return nil
 }
 
+func (a *App) startGameLane4G() error {
+	runtime.EventsEmit(a.ctx, "connecting", true)
+
+	cfg := gamelane.DefaultConfig()
+	ifcs, err := iface.Detect()
+	if err != nil {
+		runtime.EventsEmit(a.ctx, "connecting", false)
+		return fmt.Errorf("detect interfaces for GameLane 4G: %w", err)
+	}
+	for _, ifc := range ifcs {
+		name := strings.ToLower(ifc.Name)
+		switch {
+		case cfg.StarlinkInterface == "" && (strings.Contains(name, "ethernet") || strings.Contains(name, "starlink")):
+			cfg.StarlinkInterface = ifc.Name
+		case cfg.MobileInterface == "" && (strings.Contains(name, "wi-fi") || strings.Contains(name, "wifi") || strings.Contains(name, "mobile") || strings.Contains(name, "cell")):
+			cfg.MobileInterface = ifc.Name
+		}
+	}
+	if cfg.StarlinkInterface == "" && len(ifcs) > 0 {
+		cfg.StarlinkInterface = ifcs[0].Name
+	}
+	if cfg.MobileInterface == "" && len(ifcs) > 1 {
+		cfg.MobileInterface = ifcs[1].Name
+	}
+	cfg.LANInterface = "Xbox Ethernet / Windows ICS"
+
+	engine := gamelane.NewEngine(cfg)
+	statsCtx, cancelStats := context.WithCancel(context.Background())
+	if err := engine.Start(statsCtx); err != nil {
+		cancelStats()
+		runtime.EventsEmit(a.ctx, "connecting", false)
+		return fmt.Errorf("start GameLane 4G: %w", err)
+	}
+
+	a.mu.Lock()
+	a.active = true
+	a.gameLane = engine
+	a.cancelStats = cancelStats
+	a.mu.Unlock()
+
+	runtime.EventsEmit(a.ctx, "connecting", false)
+	runtime.EventsEmit(a.ctx, "state-changed", true)
+	go a.emitStats(statsCtx)
+	return nil
+}
+
 func (a *App) stopGameMode() {
 	// Grab and clear state atomically
 	a.mu.Lock()
 	client := a.bondClient
+	gameLane := a.gameLane
 	tun := a.wgTunnel
 	routes := a.hostRoutes
 	restoreRoutes := a.restoreHostRouteMetrics
 	cancel := a.cancelStats
 	a.active = false
 	a.bondClient = nil
+	a.gameLane = nil
 	a.wgTunnel = nil
 	a.hostRoutes = nil
 	a.restoreHostRouteMetrics = nil
@@ -534,6 +594,9 @@ func (a *App) stopGameMode() {
 	}
 	if client != nil {
 		client.Stop()
+	}
+	if gameLane != nil {
+		gameLane.Stop()
 	}
 	if restoreRoutes != nil {
 		restoreRoutes()
