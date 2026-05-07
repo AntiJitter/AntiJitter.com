@@ -433,6 +433,14 @@ export default function Dashboard({ onLogout }) {
             </div>
             <div className="gamelane-grid">
               <div>
+                <span>Capture</span>
+                <strong>{status.gamelane?.capture_available ? 'WinDivert active' : 'Driver missing'}</strong>
+              </div>
+              <div>
+                <span>Active game flows</span>
+                <strong>{(status.gamelane?.metrics?.active_game_flows ?? 0).toLocaleString()}</strong>
+              </div>
+              <div>
                 <span>Starlink</span>
                 <strong>{status.gamelane?.starlink_interface || '--'}</strong>
               </div>
@@ -447,6 +455,14 @@ export default function Dashboard({ onLogout }) {
               <div>
                 <span>Promoted to 4G</span>
                 <strong>{(status.gamelane?.metrics?.promoted_4g_flows ?? 0).toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Rejected UDP/443</span>
+                <strong>{(status.gamelane?.metrics?.rejected_udp443_flows ?? 0).toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>Rejected large UDP</span>
+                <strong>{(status.gamelane?.metrics?.rejected_large_udp_flows ?? 0).toLocaleString()}</strong>
               </div>
             </div>
           </section>

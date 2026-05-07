@@ -56,15 +56,16 @@ A flow is considered a gameplay candidate only when several signals agree:
 - flow is not a bursty one-off download-like flow
 - ASN/IP reputation can boost confidence, but is not sufficient alone
 
-The current implementation ships the classifier and dry-run engine first.
-Active WinDivert steering is intentionally not enabled until the packet capture
-and NAT rewrite layer is implemented and tested.
+The current implementation ships the classifier and a WinDivert capture-only
+dry-run. Active steering is intentionally not enabled until the NAT rewrite and
+interface egress layer is implemented and tested.
 
 ## Dry-Run
 
-Dry-run starts GameLane without changing routes or steering packets. It logs the
-configured Xbox, Starlink, and mobile interfaces and reports that active
-WinDivert steering is not available in this build.
+Dry-run starts GameLane without changing routes or steering packets. If
+WinDivert is installed beside `antijitter.exe` and the app is running as
+Administrator, it captures outbound IPv4 UDP in sniff mode and feeds rolling
+flow metrics into the classifier. Sniff mode does not block or modify packets.
 
 User-facing mode name:
 
@@ -92,7 +93,16 @@ Expected dry-run logs:
 [GameLane] LAN interface: "Xbox Ethernet / Windows ICS"
 [GameLane] Starlink interface: "Ethernet 2"
 [GameLane] 4G interface: "Wi-Fi"
-[GameLane] WinDivert capture/steering not active yet; classifier dry-run scaffold is running
+[GameLane] WinDivert capture active filter="ip and udp and not loopback" flags=sniff
+[GameLane] flow candidate: src=192.168.137.42:3074 dst=...
+[GameLane] flow promoted to 4G: ...
+[GameLane] flow rejected/defaulted to Starlink: ...
+```
+
+If the driver is missing, the UI shows `Driver missing` and logs:
+
+```text
+[GameLane] capture status: available=false message="WinDivert DLL not found..."
 ```
 
 ## Xbox Ethernet Setup
@@ -110,8 +120,8 @@ Expected dry-run logs:
 - If 4G spikes or drops, the game can lag or disconnect.
 - If traffic switches between 4G and Starlink direct paths mid-session, the
   public IP/NAT mapping can change and the game session may break.
-- Active steering requires a Windows packet capture and injection layer such as
-  WinDivert or a production WFP driver.
+- Active steering still requires NAT/rewrite, reply capture, and interface
+  egress code. Current WinDivert support is capture-only.
 - WinDivert requires Administrator privileges and driver installation.
 - Classification needs per-game tuning.
 - ASN/IP databases are useful hints but not reliable enough by themselves.
@@ -121,14 +131,12 @@ Expected dry-run logs:
 
 ## Next Implementation Step
 
-The next step is a Windows-only WinDivert capture layer:
+The next step is active steering:
 
-1. Capture forwarded Xbox packets from the LAN interface.
-2. Build and update per-flow metadata.
-3. Call the GameLane classifier.
-4. For promoted flows, NAT/rewrite and send through the mobile interface.
-5. Preserve reverse NAT mapping so replies return to the Xbox.
-6. Leave all rejected traffic on the normal Starlink route.
+1. For promoted flows, NAT/rewrite and send through the mobile interface.
+2. Preserve reverse NAT mapping so replies return to the Xbox.
+3. Leave all rejected traffic on the normal Starlink route.
+4. Add a kill switch that closes the WinDivert handle and clears mappings.
 
 Until that layer exists, GameLane 4G should be considered a safe UI/classifier
-prototype, not an active router.
+and capture prototype, not an active router.

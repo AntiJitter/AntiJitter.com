@@ -137,9 +137,10 @@ func (c Classifier) isXboxSource(sample FlowSample) bool {
 		return normalizeMAC(c.cfg.XboxLANMAC) == normalizeMAC(sample.SourceMAC)
 	}
 	// During dry-run discovery we may not know the Xbox identity yet. Treat
-	// RFC1918 ICS clients as possible Xbox sources only when no manual identity
-	// is configured; the remaining score still needs game-like behavior.
-	return xboxIP == nil && c.cfg.XboxLANMAC == "" && isPrivateIPv4(sample.SourceIP)
+	// Windows ICS clients as possible Xbox sources only when no manual identity
+	// is configured; the remaining score still needs game-like behavior. This
+	// avoids classifying normal PC traffic from the Starlink/mobile WAN subnets.
+	return xboxIP == nil && c.cfg.XboxLANMAC == "" && isDefaultWindowsICSClient(sample.SourceIP)
 }
 
 func normalizeMAC(mac string) string {
@@ -148,19 +149,10 @@ func normalizeMAC(mac string) string {
 	return mac
 }
 
-func isPrivateIPv4(ip net.IP) bool {
+func isDefaultWindowsICSClient(ip net.IP) bool {
 	ip4 := ip.To4()
 	if ip4 == nil {
 		return false
 	}
-	switch {
-	case ip4[0] == 10:
-		return true
-	case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
-		return true
-	case ip4[0] == 192 && ip4[1] == 168:
-		return true
-	default:
-		return false
-	}
+	return ip4[0] == 192 && ip4[1] == 168 && ip4[2] == 137
 }
